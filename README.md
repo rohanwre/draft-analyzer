@@ -14,11 +14,7 @@ Recommendations are based on:
 - **Positional need** — what your roster still needs to fill starting slots, with urgency scaling as rounds run out
 - **Combined scoring** — each recommended player gets a score weighted 60% ADP strength and 40% historical trend strength
 
-## Demo
-
-*(add GIF here)*
-
-## Setup
+## Setup (Demo)
 
 ### Requirements
 - Python 3.11+
