@@ -535,6 +535,16 @@ ADP_QUALITY_HALFLIFE = 15
 TREND_WEIGHT = 0.6
 POSITIONAL_CLIFF_SCALE = 25
 CLIFF_MIN_SAMPLE = 2
+# A cliff only matters if you'd actually want more of that position — full urgency when
+# you need it, a little residual value once you're exactly at requirement (an extra
+# starter-quality body is still mild insurance), essentially none once you're already
+# stacked there.
+CLIFF_NEED_MULTIPLIER = {
+    "urgent": 1.0,
+    "need": 1.0,
+    "filled": 0.3,
+    "surplus": 0.0,
+}
 RANKED_PLAYERS_POOL_PER_POSITION = 50
 
 def get_next_turn_picks(current_round, draft_slot, league_size, count=2):
@@ -584,7 +594,11 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
         whenever value_bonus was 0 (i.e. anytime nobody there had actually fallen yet).
       - cliff_bonus: rewards a position that's about to dry up before your next turn (see
         get_positional_cliff_bonus) — this is what makes an early RB score higher than an
-        equivalent WR when RB depth is about to fall off a cliff and WR depth isn't.
+        equivalent WR when RB depth is about to fall off a cliff and WR depth isn't. Scaled
+        by CLIFF_NEED_MULTIPLIER based on need state: a cliff only matters if you'd actually
+        want more of that position. Without this, a position you're already stacked at
+        (surplus) got the same "grab it now" urgency as a real need, which is backwards —
+        if you already have enough RBs, RB depth drying up isn't a reason to draft another.
     value_bonus is uncapped and grows with how far a player has fallen, so a big enough
     fall (e.g. 20+ picks) outweighs a roster-need penalty (like already having a TE)
     without any special-case logic — it just falls out of the math."""
@@ -607,7 +621,7 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
     for position, players in players_by_position.items():
         trend_pct = position_pct_lookup.get(position, 0)
         need_info = fill_status.get(position, {"state": None, "need_bonus": 0})
-        cliff_bonus = cliff_bonus_by_position.get(position, 0)
+        cliff_bonus = cliff_bonus_by_position.get(position, 0) * CLIFF_NEED_MULTIPLIER.get(need_info["state"], 1.0)
         for name, adp, rank in players:
             value = max(0, current_pick - adp)
             value_bonus = value * VALUE_BONUS_PER_PICK
