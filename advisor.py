@@ -404,8 +404,15 @@ def position_pick_multiplier(position, team_counts, league_settings):
     """Down-weights a position once a simulated team already has its starters at it, so
     mock drafts round out a roster instead of stacking one position. QB/TE (single-need,
     rarely double-rostered early) taper off hard; RB/WR (flex-eligible, normal to stock
-    the bench) taper gently so late-round RB/WR depth still happens."""
+    the bench) taper gently so late-round RB/WR depth still happens.
+    QB's requirement extends past its base starter count to cover SFLEX slots too (same
+    fix as get_position_fill_status) — otherwise simulated teams in superflex leagues
+    treated a 2nd QB as immediate surplus, tapering it hard even though SFLEX makes a
+    2nd QB a legitimate starter, not bench depth. That was pushing backup-tier QBs
+    (Bryce Young, Tua, etc.) later than their real ADP in simulated superflex drafts."""
     required = league_settings.get(REQUIRED_STARTERS.get(position, ""), 1)
+    if position == "QB":
+        required += league_settings.get("sflex", 0)
     count = team_counts.get(position, 0)
     if count < required:
         return 1.0
