@@ -425,8 +425,8 @@ button:disabled {
 }
 
 .position-group {
-  flex: 1;
-  min-width: 160px;
+  flex: 0 0 auto;
+  width: 260px;
 }
 
 .position-group-header {
