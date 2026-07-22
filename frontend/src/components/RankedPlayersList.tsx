@@ -21,7 +21,9 @@ export default function RankedPlayersList({ players }: Props) {
             </span>
             {p.need === "urgent" && <span className="tag tag-urgent">URGENT NEED</span>}
             {p.need === "need" && <span className="tag tag-need">NEED</span>}
-            {p.need === "surplus" && <span className="tag tag-surplus">HAVE ENOUGH</span>}
+            {(p.need === "surplus" || p.need === "filled") && (
+              <span className="tag tag-surplus">HAVE ENOUGH</span>
+            )}
             {p.value > 0 && <span className="value">+{p.value.toFixed(0)} past ADP</span>}
           </li>
         ))}

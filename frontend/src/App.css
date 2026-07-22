@@ -227,6 +227,57 @@ button:disabled {
   text-decoration: line-through;
 }
 
+/* Roster slot view */
+
+.roster-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.roster-summary-header h3 {
+  margin: 0;
+}
+
+.roster-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.roster-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.roster-slot-group {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.roster-slot-label {
+  min-width: 48px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  padding-top: 4px;
+}
+
+.roster-slot-group .roster-list {
+  flex: 1;
+}
+
+.roster-slot-empty {
+  color: var(--border);
+}
+
 .board-cell-name {
   font-weight: 600;
 }
