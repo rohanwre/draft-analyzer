@@ -397,6 +397,11 @@ button:disabled {
   color: var(--text);
 }
 
+.tag-cliff {
+  background: rgba(214, 145, 69, 0.15);
+  color: #d69145;
+}
+
 .adp {
   color: var(--text);
   font-size: 12px;

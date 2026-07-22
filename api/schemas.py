@@ -57,6 +57,7 @@ class RankedPlayerItem(BaseModel):
     trend_pct: float
     need: Optional[str] = None
     value: float
+    cliff_bonus: float
 
 class RecommendationOut(BaseModel):
     trend_source: str

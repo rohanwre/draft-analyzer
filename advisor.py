@@ -506,11 +506,39 @@ def get_position_fill_status(my_picks, league_settings, current_round):
 VALUE_BONUS_PER_PICK = 1.5
 ADP_QUALITY_SCALE = 1.0
 TREND_WEIGHT = 0.6
+POSITIONAL_CLIFF_SCALE = 25
+CLIFF_MIN_SAMPLE = 2
 RANKED_PLAYERS_POOL_PER_POSITION = 50
 
+def get_next_turn_picks(current_round, draft_slot, league_size, count=2):
+    """Global pick numbers of the user's next `count` turns after the current one."""
+    return [
+        global_pick_number(current_round + i, draft_slot, league_size)
+        for i in range(1, count + 1)
+    ]
+
+def get_positional_cliff_bonus(players_by_position, current_pick, next_turn_pick, next_next_turn_pick):
+    """Detects a positional run/cliff: compares how many available players at a position
+    fall in the window before the user's next turn (tier1 — "at risk" of being taken by
+    other teams before then) versus the window between the user's next turn and the one
+    after (tier2 — what's realistically still there to choose from at that next turn).
+    A position where tier2 craters relative to tier1 (e.g. plenty of RBs and WRs left
+    right now, but next round it's all WRs) means waiting on that position risks missing
+    it entirely, so it gets an urgency bonus now — independent of roster need or trend."""
+    bonus = {}
+    for position, players in players_by_position.items():
+        tier1 = sum(1 for _, adp, _ in players if current_pick <= adp < next_turn_pick)
+        tier2 = sum(1 for _, adp, _ in players if next_turn_pick <= adp < next_next_turn_pick)
+        if tier1 < CLIFF_MIN_SAMPLE:
+            bonus[position] = 0
+            continue
+        dropoff = max(0.0, 1 - (tier2 / tier1))
+        bonus[position] = POSITIONAL_CLIFF_SCALE * dropoff
+    return bonus
+
 def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_round, current_pick,
-                        season, position_pct_lookup, rank_lookup, adp_league_type="standard", limit=10):
-    """Single blended score per available player, mixing four signals:
+                        season, position_pct_lookup, rank_lookup, draft_slot, adp_league_type="standard", limit=10):
+    """Single blended score per available player, mixing five signals:
       - trend_pct * TREND_WEIGHT: historical top-2-seed rate for this position at this
         point in similar drafts, damped to 0.6x. Full-strength trend_pct swings ~30 points
         between positions (e.g. WR ~49% vs QB ~19%) on its own, which is bigger than most
@@ -523,24 +551,37 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
         so e.g. Josh Allen (ADP 1.5) still outranks Trevor Lawrence (ADP 21.5) even when
         neither has fallen — without this term every player at a position was tied
         whenever value_bonus was 0 (i.e. anytime nobody there had actually fallen yet).
+      - cliff_bonus: rewards a position that's about to dry up before your next turn (see
+        get_positional_cliff_bonus) — this is what makes an early RB score higher than an
+        equivalent WR when RB depth is about to fall off a cliff and WR depth isn't.
     value_bonus is uncapped and grows with how far a player has fallen, so a big enough
     fall (e.g. 20+ picks) outweighs a roster-need penalty (like already having a TE)
     without any special-case logic — it just falls out of the math."""
     fill_status = get_position_fill_status(my_picks, league_settings, current_round)
+    league_size = league_settings.get("league_size", 12)
+    next_turn_pick, next_next_turn_pick = get_next_turn_picks(current_round, draft_slot, league_size)
 
-    candidates = []
-    for position in ["QB", "RB", "WR", "TE"]:
-        trend_pct = position_pct_lookup.get(position, 0)
-        need_info = fill_status.get(position, {"state": None, "need_bonus": 0})
-        players = get_available_players(
+    players_by_position = {
+        position: get_available_players(
             cursor, all_picks, position, season, rank_lookup,
             adp_league_type=adp_league_type, limit=RANKED_PLAYERS_POOL_PER_POSITION,
         )
+        for position in ["QB", "RB", "WR", "TE"]
+    }
+    cliff_bonus_by_position = get_positional_cliff_bonus(
+        players_by_position, current_pick, next_turn_pick, next_next_turn_pick
+    )
+
+    candidates = []
+    for position, players in players_by_position.items():
+        trend_pct = position_pct_lookup.get(position, 0)
+        need_info = fill_status.get(position, {"state": None, "need_bonus": 0})
+        cliff_bonus = cliff_bonus_by_position.get(position, 0)
         for name, adp, rank in players:
             value = max(0, current_pick - adp)
             value_bonus = value * VALUE_BONUS_PER_PICK
             adp_quality_bonus = max(0, 100 - adp) * ADP_QUALITY_SCALE
-            score = (trend_pct * TREND_WEIGHT) + need_info["need_bonus"] + value_bonus + adp_quality_bonus
+            score = (trend_pct * TREND_WEIGHT) + need_info["need_bonus"] + value_bonus + adp_quality_bonus + cliff_bonus
             candidates.append({
                 "name": name,
                 "position": position,
@@ -550,6 +591,7 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
                 "trend_pct": trend_pct,
                 "need": need_info["state"],
                 "value": round(value, 1),
+                "cliff_bonus": round(cliff_bonus, 1),
             })
 
     candidates.sort(key=lambda c: c["score"], reverse=True)
@@ -627,7 +669,7 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
 
     ranked_players = get_ranked_players(
         cursor, all_picks, my_picks, league_settings, current_round, current_pick,
-        season, position_pct_lookup, rank_lookup, adp_league_type=adp_league_type,
+        season, position_pct_lookup, rank_lookup, draft_slot, adp_league_type=adp_league_type,
     )
 
     return {
@@ -701,10 +743,11 @@ def show_recommendation(cursor, draft_slot, league_size, league_type, te_premium
                   f"league demand: {alert['demand_pct']}% of starts)")
 
     print()
-    print("Ranked picks (blended score: trend + roster need + ADP-fall value):")
+    print("Ranked picks (blended score: trend + roster need + ADP-fall value + positional cliff):")
     for rp in rec["ranked_players"]:
         tag = f" [{rp['need'].upper()}]" if rp["need"] in ("urgent", "need", "surplus") else ""
-        print(f"  {rp['score']:5.1f}  {rp['name']} ({rp['position']}) - ADP {rp['rank']}{tag}")
+        cliff_tag = " [SCARCE SOON]" if rp["cliff_bonus"] >= 10 else ""
+        print(f"  {rp['score']:5.1f}  {rp['name']} ({rp['position']}) - ADP {rp['rank']}{tag}{cliff_tag}")
 
 def run_draft_advisor():
     db = get_db()
