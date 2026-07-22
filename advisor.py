@@ -661,19 +661,21 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
     need_positions = {pos for pos, _ in needs}
     urgent_positions = {pos for pos, urg in needs if urg == "urgent"}
 
-    # position_order is already ranked by trend % descending; show more depth for higher-ranked positions
-    RANK_LIMITS = [5, 4, 3, 2]
+    # position_order is already ranked by trend % descending
+    TOP_AVAILABLE_LIMIT = 5
 
     top_available_by_position = []
-    for idx, position in enumerate(position_order):
+    for position in position_order:
         if position in urgent_positions:
             need_tag = "urgent"
         elif position in need_positions:
             need_tag = "need"
         else:
             need_tag = None
-        limit = RANK_LIMITS[idx] if idx < len(RANK_LIMITS) else 2
-        players = get_available_players(cursor, all_picks, position, season, rank_lookup, adp_league_type=adp_league_type, limit=limit)
+        players = get_available_players(
+            cursor, all_picks, position, season, rank_lookup,
+            adp_league_type=adp_league_type, limit=TOP_AVAILABLE_LIMIT,
+        )
         top_available_by_position.append({
             "position": position,
             "top_two_pct": position_pct_lookup.get(position, 0),

@@ -4,9 +4,11 @@ const CLIFF_TAG_THRESHOLD = 10;
 
 interface Props {
   players: RankedPlayerItem[];
+  onSelectPlayer: (name: string, position: string) => void;
+  disabled: boolean;
 }
 
-export default function RankedPlayersList({ players }: Props) {
+export default function RankedPlayersList({ players, onSelectPlayer, disabled }: Props) {
   return (
     <div className="panel-section">
       <h3>Ranked picks</h3>
@@ -32,6 +34,14 @@ export default function RankedPlayersList({ players }: Props) {
               <span className="tag tag-cliff">SCARCE SOON</span>
             )}
             {p.value > 0 && <span className="value">+{p.value.toFixed(0)} past ADP</span>}
+            <button
+              type="button"
+              className="select-btn"
+              disabled={disabled}
+              onClick={() => onSelectPlayer(p.name, p.position)}
+            >
+              Select
+            </button>
           </li>
         ))}
         {players.length === 0 && <li className="empty">No players left</li>}

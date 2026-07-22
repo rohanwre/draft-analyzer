@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PickRecord } from "../api/types";
-import { assignRosterSlots, ROSTER_SLOT_ORDER } from "../rosterSlots";
+import { assignRosterSlots, applySlotSwaps, ROSTER_SLOT_ORDER } from "../rosterSlots";
 
 interface Props {
   allPicks: PickRecord[];
@@ -8,11 +8,12 @@ interface Props {
   totalRounds: number;
   draftSlot: number;
   leagueSettings: Record<string, number | string>;
+  slotSwaps: [string, string][];
   onClose: () => void;
 }
 
 export default function FullDraftBoard({
-  allPicks, leagueSize, totalRounds, draftSlot, leagueSettings, onClose,
+  allPicks, leagueSize, totalRounds, draftSlot, leagueSettings, slotSwaps, onClose,
 }: Props) {
   const [byRosterView, setByRosterView] = useState(false);
 
@@ -32,7 +33,13 @@ export default function FullDraftBoard({
       const teamPicks = allPicks
         .filter((p) => p.pick_slot === slot)
         .map((p) => ({ position: p.position, name: p.name }));
-      rosterByTeam.set(slot, assignRosterSlots(teamPicks, leagueSettings, totalRounds));
+      const defaultResult = assignRosterSlots(teamPicks, leagueSettings, totalRounds);
+      // Manual slot swaps only ever apply to the user's own roster (the backend only
+      // allows swapping the user's own picks), so only the user's own column reflects them.
+      rosterByTeam.set(
+        slot,
+        slot === draftSlot ? applySlotSwaps(defaultResult, slotSwaps) : defaultResult,
+      );
     }
   }
 
