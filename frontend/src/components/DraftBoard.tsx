@@ -78,13 +78,18 @@ export default function DraftBoard({ state, onStateChange }: Props) {
         <h2>Draft complete!</h2>
         {toolbar}
         {error && <p className="error-text">{error}</p>}
-        <RosterSummary myPicks={state.my_picks} />
+        <RosterSummary
+          myPicks={state.my_picks}
+          leagueSettings={state.league_settings}
+          totalRounds={state.total_rounds}
+        />
         {showFullBoard && (
           <FullDraftBoard
             allPicks={state.all_picks}
             leagueSize={state.league_size}
             totalRounds={state.total_rounds}
             draftSlot={state.draft_slot}
+            leagueSettings={state.league_settings}
             onClose={() => setShowFullBoard(false)}
           />
         )}
@@ -122,7 +127,11 @@ export default function DraftBoard({ state, onStateChange }: Props) {
         onPickCommitted={onStateChange}
       />
 
-      <RosterSummary myPicks={state.my_picks} />
+      <RosterSummary
+        myPicks={state.my_picks}
+        leagueSettings={state.league_settings}
+        totalRounds={state.total_rounds}
+      />
 
       {showFullBoard && (
         <FullDraftBoard
@@ -130,6 +139,7 @@ export default function DraftBoard({ state, onStateChange }: Props) {
           leagueSize={state.league_size}
           totalRounds={state.total_rounds}
           draftSlot={state.draft_slot}
+          leagueSettings={state.league_settings}
           onClose={() => setShowFullBoard(false)}
         />
       )}

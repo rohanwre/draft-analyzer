@@ -305,13 +305,14 @@ def get_scarcity(cursor, all_picks, current_pick_number, season, league_settings
     flex = league_settings.get("flex", 1)
     sflex = league_settings.get("sflex", 0)
     size = league_settings.get("league_size", 12)
-    flex_share = flex / 3
+    # FLEX is RB/WR-eligible only (not TE), so its demand splits two ways, not three.
+    flex_share = flex / 2
 
     demand = {
         "QB": (league_settings.get("qb", 1) + sflex * 0.25) * size,
         "RB": (league_settings.get("rb", 2) + flex_share) * size,
         "WR": (league_settings.get("wr", 2) + flex_share) * size,
-        "TE": (league_settings.get("te", 1) + flex_share) * size,
+        "TE": league_settings.get("te", 1) * size,
     }
 
     total_demand = sum(demand.values())
