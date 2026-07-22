@@ -456,9 +456,14 @@ def get_positional_need(my_picks, league_settings, current_round):
 
     total_rounds = league_settings.get("total_rounds", 15)
     rounds_left = total_rounds - current_round
+    # SFLEX is overwhelmingly filled by a 2nd/3rd QB in practice, so QB's real "full
+    # roster" requirement extends past its base starter count to cover SFLEX too —
+    # otherwise a team with exactly one QB reads as fully staffed at QB even with an
+    # empty superflex slot sitting right there.
+    qb_required = league_settings.get("qb", 1) + league_settings.get("sflex", 0)
     needed = []
 
-    if counts.get("QB", 0) < league_settings.get("qb", 1):
+    if counts.get("QB", 0) < qb_required:
         needed.append(("QB", "urgent" if rounds_left <= 4 else "need"))
 
     if counts.get("TE", 0) < league_settings.get("te", 1):
@@ -472,39 +477,58 @@ def get_positional_need(my_picks, league_settings, current_round):
 
     return needed
 
+SFLEX_SOFT_NEED_BONUS = 6
+
 def get_position_fill_status(my_picks, league_settings, current_round):
-    """Per-position roster state used for score bonuses/penalties: how far below or
-    above starter requirement each position sits. Deficits score positive (need/urgent),
-    surpluses score negative and stack (-20 for exactly filled, -15 more per extra body)."""
+    """Per-position roster state used for score bonuses/penalties.
+    QB gets a second, softer requirement tier for SFLEX: once the base QB starter slot
+    is covered, an unfilled SFLEX slot still counts as a real (if milder) need rather than
+    vanishing entirely — a team with one QB and an empty superflex slot was previously
+    reading as fully "filled" at QB, which is wrong.
+    RB/WR use a much gentler surplus penalty than QB/TE once "filled": bench RB/WR depth
+    (bye weeks, injuries) is normal and valuable, a 3rd/4th QB or 2nd/3rd TE almost never
+    is — this mirrors position_pick_multiplier's same RB/WR-lenient, QB/TE-strict split
+    used for CPU mock-draft picks, which the human-facing score didn't previously match."""
     counts = {}
     for _, pos, _ in my_picks:
         counts[pos] = counts.get(pos, 0) + 1
 
     total_rounds = league_settings.get("total_rounds", 15)
     rounds_left = total_rounds - current_round
-    requirements = {
+    base_required = {
         "QB": league_settings.get("qb", 1),
         "RB": league_settings.get("rb", 2),
         "WR": league_settings.get("wr", 2),
         "TE": league_settings.get("te", 1),
     }
+    extended_required = dict(base_required)
+    extended_required["QB"] += league_settings.get("sflex", 0)
     urgent_thresholds = {"QB": 4, "TE": 3}
 
     status = {}
-    for position, required in requirements.items():
+    for position in base_required:
         count = counts.get(position, 0)
-        deficit = required - count
-        if deficit > 0:
+        base_deficit = base_required[position] - count
+        extended_deficit = extended_required[position] - count
+
+        if base_deficit > 0:
             urgent = rounds_left <= urgent_thresholds.get(position, 0)
             status[position] = {"state": "urgent" if urgent else "need", "need_bonus": 30 if urgent else 10}
+        elif extended_deficit > 0:
+            status[position] = {"state": "need", "need_bonus": SFLEX_SOFT_NEED_BONUS}
         else:
-            over = count - required
+            over = count - extended_required[position]
             state = "filled" if over == 0 else "surplus"
-            status[position] = {"state": state, "need_bonus": -20 - 15 * over}
+            if position in ("QB", "TE"):
+                need_bonus = -20 - 15 * over
+            else:
+                need_bonus = -5 - 5 * over
+            status[position] = {"state": state, "need_bonus": need_bonus}
     return status
 
 VALUE_BONUS_PER_PICK = 1.5
 ADP_QUALITY_SCALE = 1.0
+ADP_QUALITY_HALFLIFE = 15
 TREND_WEIGHT = 0.6
 POSITIONAL_CLIFF_SCALE = 25
 CLIFF_MIN_SAMPLE = 2
@@ -547,9 +571,13 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
         a rank-16 QB). Damping it keeps position trend an input, not the deciding one.
       - need_bonus: roster-fit adjustment (need/urgent add, an already-filled position subtracts)
       - value_bonus: uncapped bonus for how far the player has fallen past their own ADP
-      - adp_quality_bonus: baseline player quality from raw ADP (max(0, 100 - adp) * 1.0),
-        so e.g. Josh Allen (ADP 1.5) still outranks Trevor Lawrence (ADP 21.5) even when
-        neither has fallen — without this term every player at a position was tied
+      - adp_quality_bonus: baseline player quality from raw ADP, on a curve that flattens
+        out rather than a straight line — 100 / (1 + adp / 15). A 19-pick ADP gap near the
+        top of the draft (e.g. rank 1.5 vs 21.5) is a real talent cliff and should swing the
+        score a lot; the same 19-pick gap in round 7 (e.g. rank 68 vs 87) is mostly noise and
+        shouldn't swamp a real roster need — fantasy value genuinely flattens out like this
+        in the middle rounds, so a straight-line bonus was overweighting small ADP gaps deep
+        into the draft. Without this term at all, every player at a position was tied
         whenever value_bonus was 0 (i.e. anytime nobody there had actually fallen yet).
       - cliff_bonus: rewards a position that's about to dry up before your next turn (see
         get_positional_cliff_bonus) — this is what makes an early RB score higher than an
@@ -580,7 +608,7 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
         for name, adp, rank in players:
             value = max(0, current_pick - adp)
             value_bonus = value * VALUE_BONUS_PER_PICK
-            adp_quality_bonus = max(0, 100 - adp) * ADP_QUALITY_SCALE
+            adp_quality_bonus = (100 / (1 + adp / ADP_QUALITY_HALFLIFE)) * ADP_QUALITY_SCALE
             score = (trend_pct * TREND_WEIGHT) + need_info["need_bonus"] + value_bonus + adp_quality_bonus + cliff_bonus
             candidates.append({
                 "name": name,
