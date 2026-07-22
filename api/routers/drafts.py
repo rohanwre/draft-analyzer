@@ -60,15 +60,16 @@ def _serialize_state(session, cursor):
         **turn,
     }
 
-def _get_session_or_404(draft_id):
+def _get_session_or_404(cursor, draft_id):
     try:
-        return draft_state.get_session(draft_id)
+        return draft_state.get_session(cursor, draft_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Draft not found")
 
 @router.post("", response_model=DraftStateOut)
 def create_draft(payload: CreateDraftRequest, cursor=Depends(get_db_cursor)):
     session = draft_state.create_session(
+        cursor,
         league_size=payload.league_size,
         draft_slot=payload.draft_slot,
         season=payload.season,
@@ -81,17 +82,17 @@ def create_draft(payload: CreateDraftRequest, cursor=Depends(get_db_cursor)):
 
 @router.get("/{draft_id}", response_model=DraftStateOut)
 def get_draft(draft_id: str, cursor=Depends(get_db_cursor)):
-    session = _get_session_or_404(draft_id)
+    session = _get_session_or_404(cursor, draft_id)
     return _serialize_state(session, cursor)
 
 @router.post("/{draft_id}/picks/lookup", response_model=PickLookupResponse)
 def lookup_pick(draft_id: str, payload: PickLookupRequest, cursor=Depends(get_db_cursor)):
-    session = _get_session_or_404(draft_id)
+    session = _get_session_or_404(cursor, draft_id)
     return record_pick(cursor, session["all_picks"], session["season"], payload.player_name)
 
 @router.post("/{draft_id}/picks", response_model=DraftStateOut)
 def commit_pick(draft_id: str, payload: PickCommitRequest, cursor=Depends(get_db_cursor)):
-    session = _get_session_or_404(draft_id)
+    session = _get_session_or_404(cursor, draft_id)
 
     turn = draft_state.compute_turn_state(
         session["all_picks"], session["league_size"], session["total_rounds"], session["draft_slot"]
@@ -106,30 +107,34 @@ def commit_pick(draft_id: str, payload: PickCommitRequest, cursor=Depends(get_db
         raise HTTPException(status_code=409, detail=result["message"])
 
     draft_state.add_pick(
-        draft_id, result["position"], result["name"],
+        cursor, draft_id, result["position"], result["name"],
         is_user_pick=turn["is_user_turn"], round_num=turn["current_round"],
     )
-    session = draft_state.get_session(draft_id)
+    session = draft_state.get_session(cursor, draft_id)
     return _serialize_state(session, cursor)
 
 @router.post("/{draft_id}/undo", response_model=DraftStateOut)
 def undo_pick(draft_id: str, cursor=Depends(get_db_cursor)):
-    _get_session_or_404(draft_id)
+    _get_session_or_404(cursor, draft_id)
     try:
-        session = draft_state.undo_last_pick(draft_id)
+        session = draft_state.undo_last_pick(cursor, draft_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _serialize_state(session, cursor)
 
 @router.post("/{draft_id}/simulate", response_model=DraftStateOut)
 def simulate_to_user_turn(draft_id: str, cursor=Depends(get_db_cursor)):
-    session = _get_session_or_404(draft_id)
+    session = _get_session_or_404(cursor, draft_id)
 
     # Resolved once and fetched once outside the loop — this used to run both of these
     # queries fresh on every single simulated pick, which is where the slowdown came from.
     adp_league_type = resolve_adp_league_type(cursor, session["season"], session["league_type"])
     pool = fetch_adp_pool(cursor, session["season"], adp_league_type)
 
+    # Picks accumulate on the in-memory `session` dict through the whole loop and are
+    # only written to the DB once at the end (save_session below) — round-tripping a
+    # read+write per simulated pick would reintroduce the same per-iteration DB cost
+    # that was already fixed for the ADP pool fetch above.
     while True:
         turn = draft_state.compute_turn_state(
             session["all_picks"], session["league_size"], session["total_rounds"], session["draft_slot"]
@@ -144,10 +149,7 @@ def simulate_to_user_turn(draft_id: str, cursor=Depends(get_db_cursor)):
         if pick is None:
             break
 
-        draft_state.add_pick(
-            draft_id, pick["position"], pick["name"],
-            is_user_pick=False, round_num=turn["current_round"],
-        )
-        session = draft_state.get_session(draft_id)
+        session["all_picks"].append((pick["position"], pick["name"]))
 
+    draft_state.save_session(cursor, draft_id, session)
     return _serialize_state(session, cursor)
