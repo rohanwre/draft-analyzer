@@ -5,7 +5,7 @@ from advisor import derive_league_type, pick_order_for_round
 
 def _row_to_session(row):
     (draft_id, league_size, draft_slot, season, total_rounds, league_type,
-     te_premium, league_settings, all_picks, my_picks) = row
+     te_premium, league_settings, all_picks, my_picks, slot_swaps) = row
 
     if isinstance(league_settings, str):
         league_settings = json.loads(league_settings)
@@ -13,6 +13,8 @@ def _row_to_session(row):
         all_picks = json.loads(all_picks)
     if isinstance(my_picks, str):
         my_picks = json.loads(my_picks)
+    if isinstance(slot_swaps, str):
+        slot_swaps = json.loads(slot_swaps)
 
     return {
         "draft_id": draft_id,
@@ -25,6 +27,7 @@ def _row_to_session(row):
         "league_settings": league_settings,
         "all_picks": [tuple(p) for p in all_picks],   # [(position, name), ...]
         "my_picks": [tuple(p) for p in my_picks],      # [(round, position, name), ...]
+        "slot_swaps": [tuple(s) for s in slot_swaps],  # [(name_a, name_b), ...]
     }
 
 def create_session(cursor, league_size, draft_slot, season, total_rounds, qb, rb, wr, te, flex, sflex, te_premium):
@@ -38,11 +41,11 @@ def create_session(cursor, league_size, draft_slot, season, total_rounds, qb, rb
     cursor.execute("""
         INSERT INTO draft_sessions
             (draft_id, league_size, draft_slot, season, total_rounds, league_type,
-             te_premium, league_settings, all_picks, my_picks)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             te_premium, league_settings, all_picks, my_picks, slot_swaps)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         draft_id, league_size, draft_slot, season, total_rounds, league_type, te_premium,
-        json.dumps(league_settings), json.dumps([]), json.dumps([]),
+        json.dumps(league_settings), json.dumps([]), json.dumps([]), json.dumps([]),
     ))
     return {
         "draft_id": draft_id,
@@ -55,12 +58,13 @@ def create_session(cursor, league_size, draft_slot, season, total_rounds, qb, rb
         "league_settings": league_settings,
         "all_picks": [],
         "my_picks": [],
+        "slot_swaps": [],
     }
 
 def get_session(cursor, draft_id):
     cursor.execute("""
         SELECT draft_id, league_size, draft_slot, season, total_rounds, league_type,
-               te_premium, league_settings, all_picks, my_picks
+               te_premium, league_settings, all_picks, my_picks, slot_swaps
         FROM draft_sessions WHERE draft_id = %s
     """, (draft_id,))
     row = cursor.fetchone()
@@ -78,6 +82,24 @@ def save_session(cursor, draft_id, session):
     """, (
         json.dumps(session["all_picks"]), json.dumps(session["my_picks"]), draft_id,
     ))
+
+def add_slot_swap(cursor, draft_id, name_a, name_b):
+    """Records a manual roster-slot swap between two of the user's own picks (e.g. move
+    a bench QB into an open SFLEX spot and bump whoever was in SFLEX to the bench).
+    Applying the swap to actual slot assignments happens client-side (rosterSlots.ts) —
+    this just persists the swap pair so it survives a refresh."""
+    session = get_session(cursor, draft_id)
+    my_names = {name for _, _, name in session["my_picks"]}
+    if name_a not in my_names or name_b not in my_names:
+        raise ValueError("Can only swap slots between players on your own roster")
+    if name_a == name_b:
+        raise ValueError("Can't swap a player with themselves")
+
+    session["slot_swaps"].append((name_a, name_b))
+    cursor.execute("""
+        UPDATE draft_sessions SET slot_swaps = %s WHERE draft_id = %s
+    """, (json.dumps(session["slot_swaps"]), draft_id))
+    return session
 
 def add_pick(cursor, draft_id, position, name, is_user_pick, round_num):
     session = get_session(cursor, draft_id)

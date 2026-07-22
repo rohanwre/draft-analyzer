@@ -278,6 +278,23 @@ button:disabled {
   color: var(--border);
 }
 
+.roster-slot-filled {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.slot-swap-select {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
 .board-cell-name {
   font-weight: 600;
 }
@@ -358,6 +375,41 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
+/* Applied alongside the base .player-list li above (no overlapping properties, so both
+   rules apply cleanly) — this is what lets a plain player row lay itself out with a
+   Select button on the right, without touching .ranked-player's own bespoke flex setup. */
+.player-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.player-list-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.select-btn {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.select-btn:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+
+.select-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .need-urgent {
   color: #d64545;
   font-weight: 600;
@@ -365,13 +417,22 @@ button:disabled {
 
 /* Top available by position */
 
+.position-groups-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
 .position-group {
-  margin-bottom: 12px;
+  flex: 1;
+  min-width: 160px;
 }
 
 .position-group-header {
   font-size: 14px;
   margin-bottom: 4px;
+  white-space: nowrap;
 }
 
 .tag {

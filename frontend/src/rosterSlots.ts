@@ -60,3 +60,39 @@ export function assignRosterSlots(
     },
   };
 }
+
+/**
+ * Applies manual swaps (e.g. move a bench QB into SFLEX and bump whoever was there to
+ * the bench) on top of the auto-assigned result from assignRosterSlots. Swaps are
+ * applied in order, so later swaps see the result of earlier ones. A swap referencing a
+ * player no longer on the roster (e.g. undone since the swap was made) is skipped rather
+ * than throwing — it's just stale, not an error.
+ */
+export function applySlotSwaps(result: RosterSlotsResult, swaps: [string, string][]): RosterSlotsResult {
+  const location = new Map<string, { slot: RosterSlotKey; index: number }>();
+  for (const slot of ROSTER_SLOT_ORDER) {
+    result.slots[slot].forEach((pick, index) => location.set(pick.name, { slot, index }));
+  }
+
+  const newSlots: Record<RosterSlotKey, SlottedPick[]> = {
+    QB: [...result.slots.QB], RB: [...result.slots.RB], WR: [...result.slots.WR],
+    TE: [...result.slots.TE], FLEX: [...result.slots.FLEX], SFLEX: [...result.slots.SFLEX],
+    BENCH: [...result.slots.BENCH],
+  };
+
+  for (const [nameA, nameB] of swaps) {
+    const locA = location.get(nameA);
+    const locB = location.get(nameB);
+    if (!locA || !locB) continue;
+
+    const pickA = newSlots[locA.slot][locA.index];
+    const pickB = newSlots[locB.slot][locB.index];
+    newSlots[locA.slot][locA.index] = pickB;
+    newSlots[locB.slot][locB.index] = pickA;
+
+    location.set(nameA, locB);
+    location.set(nameB, locA);
+  }
+
+  return { slots: newSlots, slotCounts: result.slotCounts };
+}

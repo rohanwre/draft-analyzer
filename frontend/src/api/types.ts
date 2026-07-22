@@ -95,6 +95,7 @@ export interface DraftState {
   league_settings: Record<string, number | string>;
   all_picks: PickRecord[];
   my_picks: PickRecord[];
+  slot_swaps: [string, string][];
   draft_complete: boolean;
   current_round: number | null;
   current_pick_slot: number | null;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { DraftState } from "../api/types";
-import { undoLastPick, simulateToUserTurn } from "../api/client";
+import { undoLastPick, simulateToUserTurn, commitPick } from "../api/client";
 import RecommendationPanel from "./RecommendationPanel";
 import PickEntry from "./PickEntry";
 import RosterSummary from "./RosterSummary";
@@ -44,6 +44,19 @@ export default function DraftBoard({ state, onStateChange }: Props) {
     }
   }
 
+  async function handleSelectPlayer(name: string, position: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await commitPick(state.draft_id, name, position);
+      onStateChange(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to draft player");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const toolbar = (
     <div className="board-toolbar">
       <button type="button" onClick={handleUndo} disabled={busy || state.all_picks.length === 0}>
@@ -79,9 +92,12 @@ export default function DraftBoard({ state, onStateChange }: Props) {
         {toolbar}
         {error && <p className="error-text">{error}</p>}
         <RosterSummary
+          draftId={state.draft_id}
           myPicks={state.my_picks}
           leagueSettings={state.league_settings}
           totalRounds={state.total_rounds}
+          slotSwaps={state.slot_swaps}
+          onStateChange={onStateChange}
         />
         {showFullBoard && (
           <FullDraftBoard
@@ -90,6 +106,7 @@ export default function DraftBoard({ state, onStateChange }: Props) {
             totalRounds={state.total_rounds}
             draftSlot={state.draft_slot}
             leagueSettings={state.league_settings}
+            slotSwaps={state.slot_swaps}
             onClose={() => setShowFullBoard(false)}
           />
         )}
@@ -117,7 +134,11 @@ export default function DraftBoard({ state, onStateChange }: Props) {
       {error && <p className="error-text">{error}</p>}
 
       {state.is_user_turn && state.recommendation && (
-        <RecommendationPanel recommendation={state.recommendation} />
+        <RecommendationPanel
+          recommendation={state.recommendation}
+          onSelectPlayer={handleSelectPlayer}
+          disabled={busy}
+        />
       )}
 
       <PickEntry
@@ -128,9 +149,12 @@ export default function DraftBoard({ state, onStateChange }: Props) {
       />
 
       <RosterSummary
+        draftId={state.draft_id}
         myPicks={state.my_picks}
         leagueSettings={state.league_settings}
         totalRounds={state.total_rounds}
+        slotSwaps={state.slot_swaps}
+        onStateChange={onStateChange}
       />
 
       {showFullBoard && (
@@ -140,6 +164,7 @@ export default function DraftBoard({ state, onStateChange }: Props) {
           totalRounds={state.total_rounds}
           draftSlot={state.draft_slot}
           leagueSettings={state.league_settings}
+          slotSwaps={state.slot_swaps}
           onClose={() => setShowFullBoard(false)}
         />
       )}

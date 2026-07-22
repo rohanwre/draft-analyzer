@@ -88,6 +88,7 @@ class DraftStateOut(BaseModel):
     league_settings: dict
     all_picks: list[PickRecord]
     my_picks: list[PickRecord]
+    slot_swaps: list[list[str]] = []
     draft_complete: bool
     current_round: Optional[int] = None
     current_pick_slot: Optional[int] = None
@@ -108,6 +109,10 @@ class PickLookupResponse(BaseModel):
 class PickCommitRequest(BaseModel):
     name: str
     position: str
+
+class RosterSwapRequest(BaseModel):
+    name_a: str
+    name_b: str
 
 class PlayerAdpItem(BaseModel):
     name: str

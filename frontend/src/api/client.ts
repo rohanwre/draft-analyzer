@@ -55,3 +55,10 @@ export function getFullAdp(season: number, leagueType: string): Promise<PlayerAd
   const params = new URLSearchParams({ season: String(season), league_type: leagueType });
   return request(`/players/adp?${params.toString()}`);
 }
+
+export function swapRosterSlots(draftId: string, nameA: string, nameB: string): Promise<DraftState> {
+  return request(`/drafts/${draftId}/roster/swap`, {
+    method: "POST",
+    body: JSON.stringify({ name_a: nameA, name_b: nameB }),
+  });
+}

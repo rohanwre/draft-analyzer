@@ -8,7 +8,7 @@ from api import draft_state
 from api.deps import get_db_cursor
 from api.schemas import (
     CreateDraftRequest, DraftStateOut, PickLookupRequest, PickLookupResponse,
-    PickCommitRequest,
+    PickCommitRequest, RosterSwapRequest,
 )
 
 router = APIRouter(prefix="/drafts", tags=["drafts"])
@@ -56,6 +56,7 @@ def _serialize_state(session, cursor):
         "league_settings": session["league_settings"],
         "all_picks": all_picks_out,
         "my_picks": my_picks_out,
+        "slot_swaps": [list(s) for s in session["slot_swaps"]],
         "recommendation": recommendation,
         **turn,
     }
@@ -118,6 +119,15 @@ def undo_pick(draft_id: str, cursor=Depends(get_db_cursor)):
     _get_session_or_404(cursor, draft_id)
     try:
         session = draft_state.undo_last_pick(cursor, draft_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _serialize_state(session, cursor)
+
+@router.post("/{draft_id}/roster/swap", response_model=DraftStateOut)
+def swap_roster_slots(draft_id: str, payload: RosterSwapRequest, cursor=Depends(get_db_cursor)):
+    _get_session_or_404(cursor, draft_id)
+    try:
+        session = draft_state.add_slot_swap(cursor, draft_id, payload.name_a, payload.name_b)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _serialize_state(session, cursor)
