@@ -1,4 +1,5 @@
 import csv
+import os
 import mysql.connector
 from config import DB_CONFIG
 from advisor import normalize_name, SUFFIXES
@@ -162,6 +163,8 @@ def insert_merged(cursor, merged, season, league_type):
     print(f"  {league_type} season {season}: inserted/updated {inserted}, skipped {skipped}")
     return inserted
 
+ADP_DATA_DIR = "adp_data"
+
 def load_all():
     db = get_db()
     cursor = db.cursor()
@@ -169,22 +172,22 @@ def load_all():
     # standard PPR — average FP + NFC
     standard_sources = [
         # (source_name, loader_fn, filepath, season, league_type)
-        ("fp",  load_fp_adp,  "fp_adp_2020.csv",  2020, "standard"),
-        ("fp",  load_fp_adp,  "fp_adp_2021.csv",  2021, "standard"),
-        ("fp",  load_fp_adp,  "fp_adp_2022.csv",  2022, "standard"),
-        ("fp",  load_fp_adp,  "fp_adp_2023.csv",  2023, "standard"),
-        ("fp",  load_fp_adp,  "fp_adp_2024.csv",  2024, "standard"),
-        ("fp",  load_fp_adp,  "fp_adp_2025.csv",  2025, "standard"),
-        ("fp",  load_fp_adp,  "fp_adp_2026.csv",  2026, "standard"),
-        ("nfc", load_nfc_adp, "nfc_adp_2026.tsv", 2026, "standard"),
+        ("fp",  load_fp_adp,  os.path.join(ADP_DATA_DIR, "fp_adp_2020.csv"),  2020, "standard"),
+        ("fp",  load_fp_adp,  os.path.join(ADP_DATA_DIR, "fp_adp_2021.csv"),  2021, "standard"),
+        ("fp",  load_fp_adp,  os.path.join(ADP_DATA_DIR, "fp_adp_2022.csv"),  2022, "standard"),
+        ("fp",  load_fp_adp,  os.path.join(ADP_DATA_DIR, "fp_adp_2023.csv"),  2023, "standard"),
+        ("fp",  load_fp_adp,  os.path.join(ADP_DATA_DIR, "fp_adp_2024.csv"),  2024, "standard"),
+        ("fp",  load_fp_adp,  os.path.join(ADP_DATA_DIR, "fp_adp_2025.csv"),  2025, "standard"),
+        ("fp",  load_fp_adp,  os.path.join(ADP_DATA_DIR, "fp_adp_2026.csv"),  2026, "standard"),
+        ("nfc", load_nfc_adp, os.path.join(ADP_DATA_DIR, "nfc_adp_2026.tsv"), 2026, "standard"),
     ]
 
     # superflex — average FFPC + FantasyPros + Sleeper superflex rankings equally;
     # ties in the averaged ADP defer to Sleeper's own ranking (see tiebreak_source below)
     sflex_sources = [
-        ("ffpc",    load_ffpc_adp, "ffpc_adp_sf_2026.csv",    2026, "qb_premium"),
-        ("fp",      load_fp_adp,   "fp_adp_sf_2026.csv",      2026, "qb_premium"),
-        ("sleeper", load_ffpc_adp, "sleeper_adp_sf_2026.csv", 2026, "qb_premium"),
+        ("ffpc",    load_ffpc_adp, os.path.join(ADP_DATA_DIR, "ffpc_adp_sf_2026.csv"),    2026, "qb_premium"),
+        ("fp",      load_fp_adp,   os.path.join(ADP_DATA_DIR, "fp_adp_sf_2026.csv"),      2026, "qb_premium"),
+        ("sleeper", load_ffpc_adp, os.path.join(ADP_DATA_DIR, "sleeper_adp_sf_2026.csv"), 2026, "qb_premium"),
     ]
 
     # process standard by season
