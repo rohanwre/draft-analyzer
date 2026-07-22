@@ -10,6 +10,9 @@ SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
 NAME_ALIASES = {
     "hollywood brown": "marquise brown",
+    "cam ward": "cameron ward",
+    "cam skattebo": "cameron skattebo",
+    "kenny gainwell": "kenneth gainwell",
 }
 
 def get_db():
