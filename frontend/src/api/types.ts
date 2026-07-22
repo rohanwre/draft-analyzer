@@ -52,6 +52,7 @@ export interface RankedPlayerItem {
   trend_pct: number;
   need: string | null;
   value: number;
+  cliff_bonus: number;
 }
 
 export interface ScarcityAlertItem {
