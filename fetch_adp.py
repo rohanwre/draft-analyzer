@@ -30,8 +30,8 @@ def insert_adp(cursor, players, season):
         name = f"{first} {last}".strip()
 
         cursor.execute("""
-            INSERT INTO adp (player_name, position, adp, season)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO adp (player_name, position, adp, season, league_type)
+            VALUES (%s, %s, %s, %s, 'standard')
             ON DUPLICATE KEY UPDATE adp = %s
         """, (name, position, adp, season, adp))
         inserted += 1
