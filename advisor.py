@@ -546,22 +546,44 @@ def get_next_turn_picks(current_round, draft_slot, league_size, count=2):
     ]
 
 def get_positional_cliff_bonus(players_by_position, current_pick, next_turn_pick, next_next_turn_pick):
-    """Detects a positional run/cliff: compares how many available players at a position
-    fall in the window before the user's next turn (tier1 — "at risk" of being taken by
-    other teams before then) versus the window between the user's next turn and the one
-    after (tier2 — what's realistically still there to choose from at that next turn).
-    A position where tier2 craters relative to tier1 (e.g. plenty of RBs and WRs left
-    right now, but next round it's all WRs) means waiting on that position risks missing
-    it entirely, so it gets an urgency bonus now — independent of roster need or trend."""
-    bonus = {}
+    """Detects a positional run/cliff RELATIVE to the other positions, not in isolation.
+    Compares how densely available players are packed in the window before the user's
+    next turn (tier1) versus the window between the next turn and the one after (tier2),
+    normalized by each window's pick-count so a tier2 window twice as wide as tier1
+    doesn't get an unfair head start. A position whose density falls off much more than
+    the SAFEST other position's (the one that'll still be deepest at your next turn)
+    gets the bonus — comparing a position against itself in isolation was the bug: TE's
+    ADP is naturally lumpy (small elite tier, then a big gap), so it looked like a cliff
+    on almost every query regardless of whether anything unusual was actually happening,
+    while a real short-term run on a denser position (e.g. RB drying up while QB/WR stay
+    deep) didn't stand out since nothing was comparing it to the alternatives."""
+    tier1_width = max(1, next_turn_pick - current_pick)
+    tier2_width = max(1, next_next_turn_pick - next_turn_pick)
+
+    densities = {}
     for position, players in players_by_position.items():
         tier1 = sum(1 for _, adp, _ in players if current_pick <= adp < next_turn_pick)
         tier2 = sum(1 for _, adp, _ in players if next_turn_pick <= adp < next_next_turn_pick)
         if tier1 < CLIFF_MIN_SAMPLE:
+            densities[position] = None
+            continue
+        rate1 = tier1 / tier1_width
+        rate2 = tier2 / tier2_width
+        densities[position] = (rate2 / rate1) if rate1 > 0 else None
+
+    valid = [d for d in densities.values() if d is not None]
+    if len(valid) < 2:
+        return {position: 0 for position in players_by_position}
+
+    safest = max(valid)
+
+    bonus = {}
+    for position, density in densities.items():
+        if density is None or safest <= 0:
             bonus[position] = 0
             continue
-        dropoff = max(0.0, 1 - (tier2 / tier1))
-        bonus[position] = POSITIONAL_CLIFF_SCALE * dropoff
+        relative_dropoff = max(0.0, 1 - (density / safest))
+        bonus[position] = POSITIONAL_CLIFF_SCALE * relative_dropoff
     return bonus
 
 def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_round, current_pick,
