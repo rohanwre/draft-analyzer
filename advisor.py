@@ -3,7 +3,7 @@ import random
 import mysql.connector
 from config import DB_CONFIG
 
-MIN_SAMPLE_SIZE = 20
+MIN_SAMPLE_SIZE = 50
 
 SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
@@ -675,9 +675,16 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
     position_pct_lookup = {}
     position_order = []
 
-    if similar:
+    similar_sample_size = sum(v["total"] for v in similar.values()) if similar else 0
+
+    # A non-empty bucket match can still be too thin to trust (the round-weighted
+    # 4-position bucket combo is specific enough that "found some rows" doesn't mean
+    # "found enough rows" - a handful of picks can swing top_two_pct to 0%/100%).
+    # Below MIN_SAMPLE_SIZE, fall back to the unconditioned general_trends pool
+    # (thousands of samples) the same way a fully empty match already did.
+    if similar and similar_sample_size >= MIN_SAMPLE_SIZE:
         trend_source = "similar_drafts"
-        sample_size = sum(v["total"] for v in similar.values())
+        sample_size = similar_sample_size
         recommendations = calculate_recommendation(similar)
         for rec in recommendations:
             if rec["position"] in ["QB", "RB", "WR", "TE"]:
