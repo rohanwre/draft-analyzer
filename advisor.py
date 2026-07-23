@@ -636,7 +636,13 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
         need_info = fill_status.get(position, {"state": None, "need_bonus": 0})
         cliff_bonus = cliff_bonus_by_position.get(position, 0) * CLIFF_NEED_MULTIPLIER.get(need_info["state"], 1.0)
         for name, adp, rank in players:
-            value = max(0, current_pick - adp)
+            # Value uses rank, not raw adp - the app displays "ADP {rank}" everywhere,
+            # so "fell past ADP" needs to match that same number or the displayed value
+            # (e.g. "+1 past ADP") won't match what a user computes by eye from the
+            # rank and current pick shown right next to it. Raw adp can differ from
+            # rank when ties get broken by source (see get_adp_rank_lookup).
+            reference = rank if rank is not None else adp
+            value = max(0, current_pick - reference)
             value_bonus = value * VALUE_BONUS_PER_PICK
             adp_quality_bonus = (100 / (1 + adp / ADP_QUALITY_HALFLIFE)) * ADP_QUALITY_SCALE
             score = (trend_pct * TREND_WEIGHT) + need_info["need_bonus"] + value_bonus + adp_quality_bonus + cliff_bonus
@@ -720,7 +726,10 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
         candidates = get_available_players(cursor, all_picks, position, season, rank_lookup, adp_league_type=adp_league_type, limit=50)
         shown = 0
         for name, adp, rank in candidates:
-            diff = adp - current_pick
+            # Same rank-not-raw-adp fix as get_ranked_players' value_bonus - keep the
+            # displayed "value: +N picks" consistent with the displayed rank.
+            reference = rank if rank is not None else adp
+            diff = reference - current_pick
             if diff < -3:
                 value_picks.append({"name": name, "position": position, "adp": adp, "rank": rank, "value": abs(diff)})
                 shown += 1
