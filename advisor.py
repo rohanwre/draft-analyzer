@@ -55,6 +55,35 @@ def global_pick_number(round_num, pick_slot, league_size):
     slot_in_round = pick_slot if round_num % 2 == 1 else league_size - pick_slot + 1
     return (round_num - 1) * league_size + slot_in_round
 
+def round_weight(round_num, total_rounds):
+    """Round 1 of an N-round draft is worth N points, round N is worth 1 point - earlier
+    picks carry more weight since they represent more draft capital/talent invested.
+    Shared by build_trend_stats.py (historical aggregation) and the live scoring below -
+    both must bucket identically or live lookups won't match the historical buckets."""
+    return max(1, total_rounds - round_num + 1)
+
+def bucket_score(score):
+    """Buckets a cumulative round-weighted position score into a small number of tiers.
+    Round is already a separate grouping/lookup dimension wherever this is used, so
+    buckets don't need to be normalized by round - "heavy RB by round 4" and "heavy RB
+    by round 10" are naturally different lookups already."""
+    if score <= 0:
+        return "NONE"
+    if score <= 10:
+        return "LIGHT"
+    if score <= 25:
+        return "MODERATE"
+    return "HEAVY"
+
+def compute_weighted_buckets(my_picks, total_rounds):
+    """Cumulative round-weighted score per position from a live draft's picks so far,
+    bucketed the same way as the historical draft_trend_stats table."""
+    cumulative = {"QB": 0, "RB": 0, "WR": 0, "TE": 0}
+    for round_num, position, _ in my_picks:
+        if position in cumulative:
+            cumulative[position] += round_weight(round_num, total_rounds)
+    return {pos: bucket_score(score) for pos, score in cumulative.items()}
+
 def lookup_position(cursor, player_name, season):
     target = normalize_name(player_name)
     if not target:
@@ -156,110 +185,71 @@ def record_pick(cursor, all_picks, season, player_name, manual_position=None):
 
     return {"status": "not_found", "message": f"No match found for '{player_name}' in ADP data.", "query": player_name}
 
-def _run_first_pick_query(cursor, draft_slot, league_size, league_type, te_premium, season):
+def _query_round1_stats(cursor, draft_slot, league_size, league_type, te_premium):
+    """Reads the pre-aggregated round1_trend_stats table (built by build_trend_stats.py)
+    instead of live-joining rosters/leagues/draft_picks - same data, computed once."""
     query = """
-        SELECT r.top_two_seed, dp.position
-        FROM rosters r
-        JOIN leagues l ON r.league_id = l.league_id
-        JOIN draft_picks dp ON r.owner_id = dp.owner_id
-            AND r.league_id = dp.league_id
-            AND dp.round = 1
-            AND dp.draft_slot = %s
-        WHERE l.league_size = %s
-        AND l.league_type = %s
-        AND l.season_type = 'regular'
+        SELECT position, SUM(total_count), SUM(success_count)
+        FROM round1_trend_stats
+        WHERE draft_slot = %s AND league_size = %s AND league_type = %s
     """
     params = [draft_slot, league_size, league_type]
 
     if te_premium is not None:
-        query += " AND l.te_premium = %s"
+        query += " AND te_premium = %s"
         params.append(te_premium)
 
+    query += " GROUP BY position"
     cursor.execute(query, params)
-    return cursor.fetchall()
+    # MySQL SUM() returns Decimal, not int/float - cast here so downstream scoring math
+    # (which does plain float arithmetic) doesn't choke on mixed Decimal/float operands.
+    return {position: {"total": int(total), "success": int(success)} for position, total, success in cursor.fetchall()}
 
-def _run_sequence_query(cursor, league_size, league_type, te_premium, position_sequence, current_round, season):
-    # cap sequence to avoid slow nested queries in later rounds
-    position_sequence = position_sequence[-3:]
-    start_round = current_round - len(position_sequence)
-
-    sequence_query = """
-        SELECT r.owner_id, r.league_id, r.top_two_seed
-        FROM rosters r
-        JOIN leagues l ON r.league_id = l.league_id
-        WHERE l.league_size = %s
-        AND l.league_type = %s
-        AND l.season_type = 'regular'
+def _query_trend_stats(cursor, league_size, league_type, te_premium, current_round, buckets):
+    """Reads the pre-aggregated draft_trend_stats table using the live draft's own
+    round-weighted position buckets (see compute_weighted_buckets) instead of live-joining
+    draft_picks for a "last 3 positions" sequence match."""
+    qb_b, rb_b, wr_b, te_b = buckets["QB"], buckets["RB"], buckets["WR"], buckets["TE"]
+    query = """
+        SELECT position, SUM(total_count), SUM(success_count)
+        FROM draft_trend_stats
+        WHERE league_size = %s AND league_type = %s AND round = %s
+        AND qb_bucket = %s AND rb_bucket = %s AND wr_bucket = %s AND te_bucket = %s
     """
-    params = [league_size, league_type]
+    params = [league_size, league_type, current_round, qb_b, rb_b, wr_b, te_b]
 
     if te_premium is not None:
-        sequence_query += " AND l.te_premium = %s"
+        query += " AND te_premium = %s"
         params.append(te_premium)
 
-    for i, position in enumerate(position_sequence, 1):
-        actual_round = start_round + i - 1
-        sequence_query += f"""
-            AND EXISTS (
-                SELECT 1 FROM draft_picks dp{i}
-                WHERE dp{i}.owner_id = r.owner_id
-                AND dp{i}.league_id = r.league_id
-                AND dp{i}.round = {actual_round}
-                AND dp{i}.position = %s
-            )
-        """
-        params.append(position)
-
-    cursor.execute(sequence_query, params)
-    matching_rosters = cursor.fetchall()
-
-    if not matching_rosters:
-        return []
-
-    results = []
-    for owner_id, league_id, top_two_seed in matching_rosters:
-        cursor.execute("""
-            SELECT position FROM draft_picks
-            WHERE owner_id = %s AND league_id = %s AND round = %s
-            ORDER BY pick_no
-            LIMIT 1
-        """, (owner_id, league_id, current_round))
-        row = cursor.fetchone()
-        if row:
-            results.append((top_two_seed, row[0]))
-
-    return results
+    query += " GROUP BY position"
+    cursor.execute(query, params)
+    return {position: {"total": int(total), "success": int(success)} for position, total, success in cursor.fetchall()}
 
 def find_similar_drafts(cursor, draft_slot, league_size, league_type, te_premium,
-                         position_sequence, current_round, season=None):
-    if not position_sequence:
-        results = _run_first_pick_query(cursor, draft_slot, league_size, league_type, te_premium, season)
-        if len(results) < MIN_SAMPLE_SIZE and te_premium is not None:
-            results = _run_first_pick_query(cursor, draft_slot, league_size, league_type, None, season)
+                         current_round, buckets):
+    if current_round == 1:
+        results = _query_round1_stats(cursor, draft_slot, league_size, league_type, te_premium)
+        if sum(v["total"] for v in results.values()) < MIN_SAMPLE_SIZE and te_premium is not None:
+            results = _query_round1_stats(cursor, draft_slot, league_size, league_type, None)
         return results
 
-    results = _run_sequence_query(cursor, league_size, league_type, te_premium, position_sequence, current_round, season)
-    if len(results) < MIN_SAMPLE_SIZE and te_premium is not None:
-        results = _run_sequence_query(cursor, league_size, league_type, None, position_sequence, current_round, season)
+    results = _query_trend_stats(cursor, league_size, league_type, te_premium, current_round, buckets)
+    if sum(v["total"] for v in results.values()) < MIN_SAMPLE_SIZE and te_premium is not None:
+        results = _query_trend_stats(cursor, league_size, league_type, None, current_round, buckets)
     return results
 
-def calculate_recommendation(similar_drafts):
-    position_stats = {}
-
-    for top_two_seed, position in similar_drafts:
-        if position not in ["QB", "RB", "WR", "TE"]:
-            continue
-        if position not in position_stats:
-            position_stats[position] = {"top_two": 0, "total": 0}
-        position_stats[position]["total"] += 1
-        if top_two_seed:
-            position_stats[position]["top_two"] += 1
-
-    total_top_two = sum(v["top_two"] for v in position_stats.values())
+def calculate_recommendation(position_stats):
+    """position_stats: {position: {"total": N, "success": M}} from find_similar_drafts.
+    top_two_pct here means "of the successful teams we saw, what share picked this
+    position" (share of success, not per-position success rate) - matches the
+    original semantics exactly, just computed from a pre-aggregated dict now instead
+    of counting raw per-roster rows."""
+    total_success = sum(v["success"] for v in position_stats.values())
 
     recommendations = []
     for position, stats in position_stats.items():
-        top_two_pct = round(stats["top_two"] / total_top_two * 100, 1) if total_top_two > 0 else 0
+        top_two_pct = round(stats["success"] / total_success * 100, 1) if total_success > 0 else 0
         recommendations.append({
             "position": position,
             "top_two_pct": top_two_pct,
@@ -270,21 +260,15 @@ def calculate_recommendation(similar_drafts):
     return recommendations
 
 def get_general_round_trends(cursor, league_size, league_type, current_round):
+    """Same draft_trend_stats table as _query_trend_stats, but ignoring the bucket
+    columns entirely (aggregating across every profile) and ignoring te_premium -
+    matches the original fallback's behavior of a completely unconditioned round trend."""
     cursor.execute("""
-        SELECT dp.position,
-            SUM(CASE WHEN r.top_two_seed = 1 THEN 1 ELSE 0 END) as top_two_count,
-            COUNT(*) as total_count,
-            ROUND(SUM(CASE WHEN r.top_two_seed = 1 THEN 1 ELSE 0 END) * 100.0 /
-                NULLIF(SUM(SUM(CASE WHEN r.top_two_seed = 1 THEN 1 ELSE 0 END)) OVER (), 0), 1) as top_two_pct
-        FROM draft_picks dp
-        JOIN rosters r ON dp.owner_id = r.owner_id AND dp.league_id = r.league_id
-        JOIN leagues l ON dp.league_id = l.league_id
-        WHERE l.league_size = %s
-        AND dp.round = %s
-        AND dp.position IN ('QB', 'RB', 'WR', 'TE')
-        AND l.league_type = %s
-        AND l.season_type = 'regular'
-        GROUP BY dp.position
+        SELECT position, SUM(success_count) as top_two_count, SUM(total_count) as total_count,
+            ROUND(SUM(success_count) * 100.0 / NULLIF(SUM(SUM(success_count)) OVER (), 0), 1) as top_two_pct
+        FROM draft_trend_stats
+        WHERE league_size = %s AND round = %s AND league_type = %s
+        GROUP BY position
         ORDER BY top_two_pct DESC
     """, (league_size, current_round, league_type))
     return cursor.fetchall()
@@ -651,9 +635,11 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
 
 def build_recommendation(cursor, draft_slot, league_size, league_type, te_premium,
                           position_sequence, current_round, all_picks, my_picks, season, league_settings, current_pick):
+    total_rounds = league_settings.get("total_rounds", 15)
+    buckets = compute_weighted_buckets(my_picks, total_rounds)
     similar = find_similar_drafts(
         cursor, draft_slot, league_size, league_type, te_premium,
-        position_sequence, current_round, season
+        current_round, buckets
     )
     adp_league_type = resolve_adp_league_type(cursor, season, league_type)
     rank_lookup = get_adp_rank_lookup(cursor, season, adp_league_type)
@@ -663,7 +649,7 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
 
     if similar:
         trend_source = "similar_drafts"
-        sample_size = len(similar)
+        sample_size = sum(v["total"] for v in similar.values())
         recommendations = calculate_recommendation(similar)
         for rec in recommendations:
             if rec["position"] in ["QB", "RB", "WR", "TE"]:
