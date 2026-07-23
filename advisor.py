@@ -634,7 +634,7 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
     for position, players in players_by_position.items():
         trend_pct = position_pct_lookup.get(position, 0)
         need_info = fill_status.get(position, {"state": None, "need_bonus": 0})
-        cliff_bonus = cliff_bonus_by_position.get(position, 0) * CLIFF_NEED_MULTIPLIER.get(need_info["state"], 1.0)
+        position_cliff_bonus = cliff_bonus_by_position.get(position, 0) * CLIFF_NEED_MULTIPLIER.get(need_info["state"], 1.0)
         for name, adp, rank in players:
             # Value uses rank, not raw adp - the app displays "ADP {rank}" everywhere,
             # so "fell past ADP" needs to match that same number or the displayed value
@@ -645,6 +645,14 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
             value = max(0, current_pick - reference)
             value_bonus = value * VALUE_BONUS_PER_PICK
             adp_quality_bonus = (100 / (1 + adp / ADP_QUALITY_HALFLIFE)) * ADP_QUALITY_SCALE
+            # The cliff bonus rewards grabbing a player before the position's near-term
+            # supply dries up - it should only apply to players actually IN that
+            # disappearing tier1 window. Without this gate it was flat across the whole
+            # position, so a deep-bench player (e.g. TE3 at ADP 90) got the same "TE is
+            # about to run out" bonus as the TE1/TE2 who are the ones actually running
+            # out, letting bad players at a cliffy position outscore good players at a
+            # stable one.
+            cliff_bonus = position_cliff_bonus if reference < next_turn_pick else 0
             score = (trend_pct * TREND_WEIGHT) + need_info["need_bonus"] + value_bonus + adp_quality_bonus + cliff_bonus
             candidates.append({
                 "name": name,
