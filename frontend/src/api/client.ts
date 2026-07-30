@@ -1,64 +1,53 @@
+// Runs entirely client-side against pre-baked static data (see scripts/export_static_data.py
+// and src/engine/) — no backend, no network calls beyond fetching the static JSON bundled
+// with this same deployment. Kept as drop-in-compatible function signatures so components
+// didn't need to change when this stopped calling a FastAPI backend.
 import type {
   CreateDraftRequest, DraftState, PickLookupResult, PlayerSearchResult, PlayerAdpItem,
 } from "./types";
-
-const API_URL = import.meta.env.VITE_API_URL as string;
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed: ${res.status}`);
-  }
-  return res.json() as Promise<T>;
-}
+import { loadStaticData } from "../engine/staticData";
+import { getFullAdpList, resolveAdpLeagueType, searchPlayers as searchPlayersPure } from "../engine/advisor";
+import {
+  createDraft as createDraftEngine, getDraft as getDraftEngine, lookupPick as lookupPickEngine,
+  commitPick as commitPickEngine, undoLastPick as undoLastPickEngine,
+  simulateToUserTurn as simulateToUserTurnEngine, swapRosterSlots as swapRosterSlotsEngine,
+} from "../engine/draftEngine";
 
 export function createDraft(payload: CreateDraftRequest): Promise<DraftState> {
-  return request("/drafts", { method: "POST", body: JSON.stringify(payload) });
+  return createDraftEngine(payload) as Promise<DraftState>;
 }
 
 export function getDraft(draftId: string): Promise<DraftState> {
-  return request(`/drafts/${draftId}`);
+  return getDraftEngine(draftId) as Promise<DraftState>;
 }
 
 export function lookupPick(draftId: string, playerName: string): Promise<PickLookupResult> {
-  return request(`/drafts/${draftId}/picks/lookup`, {
-    method: "POST",
-    body: JSON.stringify({ player_name: playerName }),
-  });
+  return lookupPickEngine(draftId, playerName);
 }
 
 export function commitPick(draftId: string, name: string, position: string): Promise<DraftState> {
-  return request(`/drafts/${draftId}/picks`, {
-    method: "POST",
-    body: JSON.stringify({ name, position }),
-  });
+  return commitPickEngine(draftId, name, position) as Promise<DraftState>;
 }
 
-export function searchPlayers(query: string, season: number, limit = 8): Promise<PlayerSearchResult[]> {
-  const params = new URLSearchParams({ q: query, season: String(season), limit: String(limit) });
-  return request(`/players/search?${params.toString()}`);
+export async function searchPlayers(query: string, season: number, limit = 8): Promise<PlayerSearchResult[]> {
+  const data = await loadStaticData();
+  return searchPlayersPure(data, query, season, limit);
 }
 
 export function undoLastPick(draftId: string): Promise<DraftState> {
-  return request(`/drafts/${draftId}/undo`, { method: "POST" });
+  return undoLastPickEngine(draftId) as Promise<DraftState>;
 }
 
 export function simulateToUserTurn(draftId: string): Promise<DraftState> {
-  return request(`/drafts/${draftId}/simulate`, { method: "POST" });
+  return simulateToUserTurnEngine(draftId) as Promise<DraftState>;
 }
 
-export function getFullAdp(season: number, leagueType: string): Promise<PlayerAdpItem[]> {
-  const params = new URLSearchParams({ season: String(season), league_type: leagueType });
-  return request(`/players/adp?${params.toString()}`);
+export async function getFullAdp(season: number, leagueType: string): Promise<PlayerAdpItem[]> {
+  const data = await loadStaticData();
+  const adpLeagueType = resolveAdpLeagueType(data, season, leagueType);
+  return getFullAdpList(data, season, adpLeagueType);
 }
 
 export function swapRosterSlots(draftId: string, nameA: string, nameB: string): Promise<DraftState> {
-  return request(`/drafts/${draftId}/roster/swap`, {
-    method: "POST",
-    body: JSON.stringify({ name_a: nameA, name_b: nameB }),
-  });
+  return swapRosterSlotsEngine(draftId, nameA, nameB) as Promise<DraftState>;
 }
