@@ -61,9 +61,14 @@ def export_adp(cursor):
 
 
 def export_round1_trend_stats(cursor):
+    # league_format='redraft' - round1_trend_stats now also holds keeper/dynasty rows (see
+    # build_trend_stats.py); the frontend has no format selector yet, so exporting
+    # everything would silently blend dynasty draft dynamics into what's presented as
+    # ordinary redraft trends. Drop this filter once the frontend gains a format selector.
     cursor.execute("""
         SELECT draft_slot, league_size, league_type, te_premium, position, total_count, success_count
         FROM round1_trend_stats
+        WHERE league_format = 'redraft'
     """)
     rows = [
         [slot, size, LEAGUE_TYPE_IDX[ltype], tep, POSITION_IDX[pos], total, success]
@@ -79,10 +84,12 @@ def export_round1_trend_stats(cursor):
 
 
 def export_draft_trend_stats(cursor):
+    # league_format='redraft' - see export_round1_trend_stats for why
     cursor.execute("""
         SELECT league_size, league_type, te_premium, round, qb_bucket, rb_bucket,
                wr_bucket, te_bucket, position, total_count, success_count
         FROM draft_trend_stats
+        WHERE league_format = 'redraft'
     """)
     rows = [
         [

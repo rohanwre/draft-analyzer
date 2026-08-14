@@ -1,314 +1,200 @@
-\# Fantasy Draft Advisor
+# Fantasy Draft Advisor
 
+A fantasy football draft tool that analyzes historical draft data from thousands of real Sleeper leagues to recommend picks in real time based on what top-finishing teams actually drafted.
 
+## Live demo
 
-A CLI-based fantasy football draft tool that analyzes historical draft data from thousands of real Sleeper leagues to recommend picks in real time based on what top-finishing teams actually drafted.
+Try it with no setup at **[rohanwre.github.io/draft-analyzer](https://rohanwre.github.io/draft-analyzer/)** — runs entirely in your browser against a static snapshot of the historical data, no backend required.
 
+Also deployed at [draft-analyzer-web.vercel.app](https://draft-analyzer-web.vercel.app).
 
+## How It Works
 
-\## How It Works
-
-
-
-The tool pulls draft and standings data from Sleeper's API across 8, 10, and 12-team standard PPR redraft leagues. It identifies which teams finished as a top-2 seed and analyzes their draft construction round by round. During a live draft, it compares your picks so far against those historical patterns and recommends what position to target next.
-
-
+The tool pulls draft and standings data from Sleeper's API across 8, 10, and 12-team standard and superflex/QB-premium redraft leagues. It identifies which teams finished as a top-2 seed and analyzes their draft construction round by round. During a live draft, it compares your picks so far against those historical patterns and recommends what position — and specific player — to target next.
 
 Recommendations are based on:
 
+- **Historical pattern matching** — what did top-2-seed teams draft in this round given a similar start (bucketed by how much a team has already invested in each position, weighted by how early those picks were)
+- **ADP value** — which players are available later than their consensus ranking suggests
+- **Positional scarcity** — how fast each position is being depleted relative to ADP, adjusted for your league's starting requirements
+- **Positional cliffs** — whether a position's available depth is about to dry up before your next turn, relative to the other positions
+- **Positional need** — what your roster still needs to fill starting slots, with urgency scaling as rounds run out
+- **Blended scoring** — each ranked player gets one score combining historical trend strength, roster-need adjustment, ADP-fall value, and positional cliff risk
 
+## Architecture
 
-\- \*\*Historical pattern matching\*\* — what did top-2-seed teams draft in this round given a similar start
+This is two separate things sharing one recommendation engine:
 
-\- \*\*ADP value\*\* — which players are available later than their consensus ranking suggests
+- **Data pipeline** (root of this repo, Python): crawls Sleeper leagues, computes historical draft outcomes, and aggregates them into compact lookup tables (`draft_trend_stats`, `round1_trend_stats`, `adp`) in MySQL. This part genuinely needs a real database — it's replaying millions of raw draft picks.
+- **Frontend** (`frontend/`, React + TypeScript): a full port of the recommendation engine (`advisor.py`) to TypeScript, running entirely client-side against a static JSON snapshot of those lookup tables (`frontend/public/data/`, produced by `scripts/export_static_data.py`). No backend calls at runtime — this is what's deployed to GitHub Pages and Vercel above.
+- **API** (`api/`, FastAPI): a REST wrapper around the same Python engine, deployable separately (e.g. to Railway) if you want a real server-backed instance instead of the static build. Not required for the live demo.
 
-\- \*\*Positional scarcity\*\* — how fast each position is being depleted relative to ADP, adjusted for your league's starting requirements
+## Setup (data pipeline + CLI)
 
-\- \*\*Positional need\*\* — what your roster still needs to fill starting slots, with urgency scaling as rounds run out
+### Requirements
 
-\- \*\*Combined scoring\*\* — each recommended player gets a score weighted 60% ADP strength and 40% historical trend strength
+- Python 3.11+
+- MySQL 8.0+
+- A Sleeper account
 
+### Install dependencies
 
+```
+pip install -r requirements.txt
+```
 
-\## Demo
-
-
-
-\*(add GIF here)\*
-
-
-
-\## Setup
-
-
-
-\### Requirements
-
-\- Python 3.11+
-
-\- MySQL 8.0+
-
-\- A Sleeper account
-
-
-
-\### Install dependencies
-
-pip install mysql-connector-python requests python-dotenv
-
-
-
-\### Configure database
+### Configure database
 
 Create a MySQL database and add a `.env` file in the project root:
 
-DB\_HOST=localhost
+```
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=yourpassword
+DB_NAME=fantasy_draft_analyzer
+```
 
-
-
-DB\_USER=root
-
-
-
-DB\_PASSWORD=yourpassword
-
-
-
-DB\_NAME=fantasy\_draft\_analyzer
-
-
-
-\### Set up the database schema
-
-Run the following in MySQL:
+### Set up the database schema
 
 ```sql
-
 CREATE TABLE leagues (
-
-&#x20;   league\_id VARCHAR(20) PRIMARY KEY,
-
-&#x20;   name VARCHAR(100),
-
-&#x20;   season INT,
-
-&#x20;   scoring\_type VARCHAR(10),
-
-&#x20;   total\_rosters INT,
-
-&#x20;   status VARCHAR(20),
-
-&#x20;   league\_size INT,
-
-&#x20;   roster\_positions TEXT,
-
-&#x20;   league\_type VARCHAR(20),
-
-&#x20;   te\_premium TINYINT(1),
-
-&#x20;   season\_type VARCHAR(20)
-
+    league_id VARCHAR(20) PRIMARY KEY,
+    name VARCHAR(100),
+    season INT,
+    scoring_type VARCHAR(10),
+    total_rosters INT,
+    status VARCHAR(20),
+    league_size INT,
+    roster_positions TEXT,
+    league_type VARCHAR(20),
+    te_premium TINYINT(1),
+    season_type VARCHAR(20)
 );
-
-
 
 CREATE TABLE rosters (
-
-&#x20;   roster\_id INT,
-
-&#x20;   league\_id VARCHAR(20),
-
-&#x20;   owner\_id VARCHAR(20),
-
-&#x20;   wins INT,
-
-&#x20;   losses INT,
-
-&#x20;   points\_for FLOAT,
-
-&#x20;   final\_seed INT,
-
-&#x20;   made\_playoffs BOOLEAN,
-
-&#x20;   top\_two\_seed BOOLEAN,
-
-&#x20;   PRIMARY KEY (roster\_id, league\_id),
-
-&#x20;   FOREIGN KEY (league\_id) REFERENCES leagues(league\_id)
-
+    roster_id INT,
+    league_id VARCHAR(20),
+    owner_id VARCHAR(20),
+    wins INT,
+    losses INT,
+    points_for FLOAT,
+    final_seed INT,
+    made_playoffs BOOLEAN,
+    top_two_seed BOOLEAN,
+    PRIMARY KEY (roster_id, league_id),
+    FOREIGN KEY (league_id) REFERENCES leagues(league_id)
 );
 
-
-
-CREATE TABLE draft\_picks (
-
-&#x20;   pick\_id VARCHAR(50) PRIMARY KEY,
-
-&#x20;   draft\_id VARCHAR(20),
-
-&#x20;   league\_id VARCHAR(20),
-
-&#x20;   owner\_id VARCHAR(20),
-
-&#x20;   round INT,
-
-&#x20;   pick\_no INT,
-
-&#x20;   position VARCHAR(5),
-
-&#x20;   player\_name VARCHAR(100),
-
-&#x20;   draft\_slot INT,
-
-&#x20;   FOREIGN KEY (league\_id) REFERENCES leagues(league\_id)
-
+CREATE TABLE draft_picks (
+    pick_id VARCHAR(50) PRIMARY KEY,
+    draft_id VARCHAR(20),
+    league_id VARCHAR(20),
+    owner_id VARCHAR(20),
+    round INT,
+    pick_no INT,
+    position VARCHAR(5),
+    player_name VARCHAR(100),
+    draft_slot INT,
+    FOREIGN KEY (league_id) REFERENCES leagues(league_id)
 );
-
-
 
 CREATE TABLE adp (
-
-&#x20;   id INT AUTO\_INCREMENT PRIMARY KEY,
-
-&#x20;   player\_name VARCHAR(100),
-
-&#x20;   position VARCHAR(5),
-
-&#x20;   adp FLOAT,
-
-&#x20;   season INT,
-
-&#x20;   league\_type VARCHAR(20) NOT NULL DEFAULT 'standard',
-
-&#x20;   UNIQUE KEY unique\_player\_season\_type (player\_name, season, league\_type)
-
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    player_name VARCHAR(100),
+    position VARCHAR(5),
+    adp FLOAT,
+    season INT,
+    league_type VARCHAR(20) NOT NULL DEFAULT 'standard',
+    UNIQUE KEY unique_player_season_type (player_name, season, league_type)
 );
-
 ```
 
+### Seed data
 
+**1. Pull league data from a Sleeper username:**
+```
+python fetch_data.py
+```
 
-\### Seed data
-
-
-
-\*\*1. Pull league data from a Sleeper username:\*\*
-
-python fetch\_data.py
-
-
-
-\*\*2. Crawl outward to find more leagues:\*\*
-
+**2. Crawl outward to find more leagues:**
+```
 python crawler.py
-
+```
 Run once per season year (2023, 2024, 2025). Targets 2000 leagues per league size (8, 10, 12 team).
 
-
-
-\*\*3. Backfill league settings:\*\*
-
-python fetch\_roster\_settings.py
-
-
-
-\*\*4. Load ADP data:\*\*
-
-
-
-Download PPR ADP CSVs from FantasyPros for each season and save as `fp\_adp\_2023.csv`, `fp\_adp\_2024.csv` etc., then:
-
-python load\_adp.py
-
-
-
-\*\*5. Calculate draft slots:\*\*
-
-```sql
-
-UPDATE draft\_picks dp
-
-JOIN leagues l ON dp.league\_id = l.league\_id
-
-SET dp.draft\_slot = ((dp.pick\_no - 1) % l.total\_rosters) + 1
-
-WHERE dp.draft\_slot IS NULL;
-
+**3. Backfill league settings:**
+```
+python fetch_roster_settings.py
 ```
 
+**4. Load ADP data:**
 
+Download PPR ADP CSVs from FantasyPros for each season and save as `fp_adp_2023.csv`, `fp_adp_2024.csv` etc., then:
+```
+python load_adp.py
+```
 
-\### Run the advisor
+**5. Calculate draft slots:**
+```sql
+UPDATE draft_picks dp
+JOIN leagues l ON dp.league_id = l.league_id
+SET dp.draft_slot = ((dp.pick_no - 1) % l.total_rosters) + 1
+WHERE dp.draft_slot IS NULL;
+```
 
+**6. Build the aggregated trend tables:**
+```
+python build_trend_stats.py
+```
+
+### Run the advisor
+
+```
 python advisor.py
+```
 
+## Running the frontend locally
 
+```
+cd frontend
+npm install
+npm run dev
+```
 
-\## Project Structure
+The frontend reads its data from `frontend/public/data/*.json`. After any pipeline recompute that changes `draft_trend_stats`/`round1_trend_stats`/`adp`, regenerate that snapshot with:
 
+```
+python scripts/export_static_data.py
+```
+
+then rebuild/redeploy the frontend to pick up the new data.
+
+## Project Structure
+
+```
 draft-analyzer/
+├── advisor.py                    # recommendation engine (search, trends, scoring)
+├── build_trend_stats.py          # aggregates raw draft picks into lookup tables
+├── fetch_data.py                 # pulls league/roster/draft data from Sleeper
+├── crawler.py                    # crawls Sleeper users to collect league data
+├── fetch_roster_settings.py      # backfills league settings
+├── load_adp.py                   # loads FantasyPros ADP CSVs
+├── fetch_adp.py                  # pulls current season ADP from Sleeper
+├── config.py                     # database config via dotenv
+├── fp_adp_2023.csv … fp_adp_2026.csv
+├── api/                          # FastAPI wrapper around advisor.py (optional, e.g. Railway)
+├── scripts/
+│   └── export_static_data.py     # exports DB tables to frontend/public/data/*.json
+├── frontend/                     # React + TypeScript app (Vite)
+│   ├── src/engine/               # TypeScript port of advisor.py — runs client-side
+│   └── public/data/              # static data snapshot the engine reads
+└── .env                          # not committed
+```
 
-
-
-├── advisor.py               # main CLI draft tool
-
-
-
-├── fetch\_data.py            # pulls league/roster/draft data from Sleeper
-
-
-
-├── crawler.py               # crawls Sleeper users to collect league data
-
-
-
-├── fetch\_roster\_settings.py # backfills league settings
-
-
-
-├── load\_adp.py              # loads FantasyPros ADP CSVs
-
-
-
-├── fetch\_adp.py             # pulls current season ADP from Sleeper
-
-
-
-├── config.py                # database config via dotenv
-
-
-
-├── fp\_adp\_2023.csv
-
-
-
-├── fp\_adp\_2024.csv
-
-
-
-├── fp\_adp\_2025.csv
-
-
-
-├── fp\_adp\_2026.csv
-
-
-
-└── .env                     # not committed
-
-
-
-\## Data
-
-
+## Data
 
 This tool works best with a large dataset of completed seasons. The included ADP CSVs cover 2023-2026. League draft and standings data must be crawled from Sleeper using the scripts above — the database is not included in this repo.
 
-
-
-\## License
-
-
+## License
 
 MIT License — free to use with attribution. The analysis logic and data pipeline are original work; please credit if you build on this.
-

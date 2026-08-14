@@ -8,3 +8,4 @@ frontend/dist/
 frontend/.env.local
 .claude/
 .vercel
+*_log*.txt

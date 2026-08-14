@@ -47,21 +47,28 @@ def derive_league_type(roster_positions):
         return "qb_premium"
     return "standard"
 
+# derives redraft/keeper/dynasty from Sleeper's settings.type (0/1/2, confirmed via live API sampling)
+def derive_league_format(settings):
+    return {0: "redraft", 1: "keeper", 2: "dynasty"}.get(settings.get("type", 0), "redraft")
+
 # adds league to db, skipping if alr added
 # roster_positions/scoring_settings/season_type already come back on the user-leagues list call,
 # so league_type/te_premium/league_size are captured here instead of needing a separate backfill pass
 def insert_league(cursor, league):
     roster_positions = league.get("roster_positions", [])
     scoring = league.get("scoring_settings", {})
+    settings = league.get("settings", {}) or {}
     te_bonus = scoring.get("bonus_rec_te", 0)
     te_premium = 1 if te_bonus and te_bonus > 0 else 0
     league_type = derive_league_type(roster_positions)
+    league_format = derive_league_format(settings)
 
     cursor.execute("""
         INSERT IGNORE INTO leagues
         (league_id, name, season, scoring_type, total_rosters, status,
-         league_size, roster_positions, league_type, te_premium, season_type)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+         league_size, roster_positions, league_type, te_premium, season_type,
+         league_format, previous_league_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         league["league_id"],
         league["name"],
@@ -73,7 +80,9 @@ def insert_league(cursor, league):
         json.dumps(roster_positions),
         league_type,
         te_premium,
-        league.get("season_type")
+        league.get("season_type"),
+        league_format,
+        league.get("previous_league_id")
     ))
 
 # adds individual rosters to each, skipping if alr added
