@@ -1,7 +1,7 @@
 // Client-side port of advisor.py's recommendation engine, operating on the pre-baked
 // StaticData (see staticData.ts) instead of live MySQL queries. Keep this in sync with
 // advisor.py — it is a line-for-line port, not a reinterpretation.
-import type { AdpRow, LeagueType, Position, PositionStats, StaticData } from "./staticData";
+import type { AdpRow, LeagueFormat, LeagueType, Position, PositionStats, StaticData } from "./staticData";
 
 const MIN_SAMPLE_SIZE = 50;
 const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
@@ -220,10 +220,23 @@ function getGeneralRoundTrends(
   return calculateRecommendation(stats).map(({ position, top_two_pct }) => ({ position, top_two_pct }));
 }
 
-export function resolveAdpLeagueType(data: StaticData, season: number, leagueType: string): LeagueType {
-  if (leagueType === "standard") return "standard";
-  const hasRows = data.adp.some((r) => r.season === season && r.leagueType === leagueType);
-  return hasRows ? (leagueType as LeagueType) : "standard";
+// Falls back within the same leagueFormat first (dynasty ADP so far is superflex-only -
+// a standard-type dynasty session should still see dynasty numbers for the closest
+// available type, not silently jump to unrelated redraft data) and only crosses into
+// redraft/standard as a last resort if this leagueFormat has no ADP data at all for the
+// season. Mirrors advisor.py's resolve_adp_league_type exactly.
+export function resolveAdpLeagueType(
+  data: StaticData, season: number, leagueType: string, leagueFormat: string = "redraft",
+): [LeagueType, LeagueFormat] {
+  const hasRows = (lt: string, fmt: string) =>
+    data.adp.some((r) => r.season === season && r.leagueType === lt && r.leagueFormat === fmt);
+
+  if (hasRows(leagueType, leagueFormat)) return [leagueType as LeagueType, leagueFormat as LeagueFormat];
+
+  const otherType = leagueType !== "standard" ? "standard" : "qb_premium";
+  if (hasRows(otherType, leagueFormat)) return [otherType as LeagueType, leagueFormat as LeagueFormat];
+
+  return ["standard", "redraft"];
 }
 
 export interface LeagueSettings {
@@ -243,6 +256,7 @@ export interface ScarcityAlert {
 export function getScarcity(
   data: StaticData, allPicks: Array<[string, string]>, currentPickNumber: number,
   season: number, leagueSettings: LeagueSettings, adpLeagueType: LeagueType = "standard",
+  adpLeagueFormat: LeagueFormat = "redraft",
 ): ScarcityAlert[] {
   const positionCounts: Partial<Record<Position, number>> = {};
   for (const [position] of allPicks) {
@@ -268,7 +282,8 @@ export function getScarcity(
   for (const [positionStr, count] of Object.entries(positionCounts)) {
     const position = positionStr as Position;
     const expected = data.adp.filter(
-      (r) => r.season === season && r.position === position && r.adp <= currentPickNumber && r.leagueType === adpLeagueType,
+      (r) => r.season === season && r.position === position && r.adp <= currentPickNumber
+        && r.leagueType === adpLeagueType && r.leagueFormat === adpLeagueFormat,
     ).length;
     if (expected === 0) continue;
 
@@ -290,9 +305,13 @@ export function getScarcity(
   return alerts;
 }
 
-function sortedAdpPool(data: StaticData, season: number, position: Position | null, adpLeagueType: LeagueType) {
+function sortedAdpPool(
+  data: StaticData, season: number, position: Position | null, adpLeagueType: LeagueType,
+  adpLeagueFormat: LeagueFormat = "redraft",
+) {
   return data.adp
-    .filter((r) => r.season === season && r.leagueType === adpLeagueType && (position === null || r.position === position))
+    .filter((r) => r.season === season && r.leagueType === adpLeagueType && r.leagueFormat === adpLeagueFormat
+      && (position === null || r.position === position))
     .sort((a, b) => {
       if (a.adp !== b.adp) return a.adp - b.adp;
       const aNull = a.tiebreakAdp === null ? 1 : 0;
@@ -302,8 +321,10 @@ function sortedAdpPool(data: StaticData, season: number, position: Position | nu
     });
 }
 
-export function getAdpRankLookup(data: StaticData, season: number, adpLeagueType: LeagueType = "standard"): Map<string, number> {
-  const pool = fetchAdpPool(data, season, adpLeagueType);
+export function getAdpRankLookup(
+  data: StaticData, season: number, adpLeagueType: LeagueType = "standard", adpLeagueFormat: LeagueFormat = "redraft",
+): Map<string, number> {
+  const pool = fetchAdpPool(data, season, adpLeagueType, adpLeagueFormat);
   const lookup = new Map<string, number>();
   pool.forEach((row, i) => lookup.set(normalizeName(row.name), i + 1));
   return lookup;
@@ -314,9 +335,10 @@ export type AvailablePlayer = [string, number, number | null]; // name, adp, ran
 export function getAvailablePlayers(
   data: StaticData, allPicks: Array<[string, string]>, position: Position, season: number,
   rankLookup: Map<string, number>, adpLeagueType: LeagueType = "standard", limit = 5,
+  adpLeagueFormat: LeagueFormat = "redraft",
 ): AvailablePlayer[] {
   const takenNormalized = new Set(allPicks.map(([, name]) => normalizeName(name)));
-  const rows = sortedAdpPool(data, season, position, adpLeagueType);
+  const rows = sortedAdpPool(data, season, position, adpLeagueType, adpLeagueFormat);
   const available: AvailablePlayer[] = [];
   for (const row of rows) {
     if (takenNormalized.has(normalizeName(row.name))) continue;
@@ -328,8 +350,10 @@ export function getAvailablePlayers(
 
 export interface AdpPoolEntry { name: string; position: Position; adp: number }
 
-export function fetchAdpPool(data: StaticData, season: number, adpLeagueType: LeagueType = "standard"): AdpPoolEntry[] {
-  return sortedAdpPool(data, season, null, adpLeagueType)
+export function fetchAdpPool(
+  data: StaticData, season: number, adpLeagueType: LeagueType = "standard", adpLeagueFormat: LeagueFormat = "redraft",
+): AdpPoolEntry[] {
+  return sortedAdpPool(data, season, null, adpLeagueType, adpLeagueFormat)
     .filter((r) => r.adp > 0)
     .map((r) => ({ name: r.name, position: r.position, adp: r.adp }));
 }
@@ -385,8 +409,10 @@ export function simulatePick(
   return { name: chosen.name, position: chosen.position, adp: chosen.adp };
 }
 
-export function getFullAdpList(data: StaticData, season: number, adpLeagueType: LeagueType = "standard") {
-  const pool = fetchAdpPool(data, season, adpLeagueType);
+export function getFullAdpList(
+  data: StaticData, season: number, adpLeagueType: LeagueType = "standard", adpLeagueFormat: LeagueFormat = "redraft",
+) {
+  const pool = fetchAdpPool(data, season, adpLeagueType, adpLeagueFormat);
   return pool.map((p, i) => ({ name: p.name, position: p.position, adp: p.adp, rank: i + 1 }));
 }
 
@@ -508,6 +534,7 @@ function getRankedPlayers(
   currentRound: number, currentPick: number, season: number,
   positionPctLookup: Partial<Record<Position, number>>, rankLookup: Map<string, number>,
   draftSlot: number, adpLeagueType: LeagueType = "standard", limit = 10,
+  adpLeagueFormat: LeagueFormat = "redraft",
 ): RankedPlayer[] {
   const fillStatus = getPositionFillStatus(myPicks, leagueSettings, currentRound);
   const leagueSize = leagueSettings.league_size ?? 12;
@@ -516,7 +543,7 @@ function getRankedPlayers(
   const playersByPosition = {} as Record<Position, AvailablePlayer[]>;
   for (const position of ["QB", "RB", "WR", "TE"] as Position[]) {
     playersByPosition[position] = getAvailablePlayers(
-      data, allPicks, position, season, rankLookup, adpLeagueType, RANKED_PLAYERS_POOL_PER_POSITION,
+      data, allPicks, position, season, rankLookup, adpLeagueType, RANKED_PLAYERS_POOL_PER_POSITION, adpLeagueFormat,
     );
   }
   const cliffBonusByPosition = getPositionalCliffBonus(playersByPosition, currentPick, nextTurnPick, nextNextTurnPick);
@@ -576,8 +603,8 @@ export function buildRecommendation(
   const totalRounds = leagueSettings.total_rounds ?? 15;
   const buckets = computeWeightedBuckets(myPicks, totalRounds);
   const similar = findSimilarDrafts(data, draftSlot, leagueSize, leagueType, tePremium, currentRound, buckets, leagueFormat);
-  const adpLeagueType = resolveAdpLeagueType(data, season, leagueType);
-  const rankLookup = getAdpRankLookup(data, season, adpLeagueType);
+  const [adpLeagueType, adpLeagueFormat] = resolveAdpLeagueType(data, season, leagueType, leagueFormat);
+  const rankLookup = getAdpRankLookup(data, season, adpLeagueType, adpLeagueFormat);
 
   const positionPctLookup: Partial<Record<Position, number>> = {};
   let positionOrder: string[] = [];
@@ -617,7 +644,7 @@ export function buildRecommendation(
   const TOP_AVAILABLE_LIMIT = 5;
   const topAvailableByPosition = positionOrder.map((position) => {
     const needTag = urgentPositions.has(position) ? "urgent" : needPositions.has(position) ? "need" : null;
-    const players = getAvailablePlayers(data, allPicks, position as Position, season, rankLookup, adpLeagueType, TOP_AVAILABLE_LIMIT);
+    const players = getAvailablePlayers(data, allPicks, position as Position, season, rankLookup, adpLeagueType, TOP_AVAILABLE_LIMIT, adpLeagueFormat);
     return {
       position,
       top_two_pct: positionPctLookup[position as Position] ?? 0,
@@ -628,7 +655,7 @@ export function buildRecommendation(
 
   const valuePicks: Recommendation["value_picks"] = [];
   for (const position of ["RB", "WR", "TE", "QB"] as Position[]) {
-    const candidates = getAvailablePlayers(data, allPicks, position, season, rankLookup, adpLeagueType, 50);
+    const candidates = getAvailablePlayers(data, allPicks, position, season, rankLookup, adpLeagueType, 50, adpLeagueFormat);
     let shown = 0;
     for (const [name, adp, rank] of candidates) {
       const reference = rank !== null ? rank : adp;
@@ -641,10 +668,10 @@ export function buildRecommendation(
     }
   }
 
-  const scarcityAlerts = getScarcity(data, allPicks, currentPick, season, leagueSettings, adpLeagueType);
+  const scarcityAlerts = getScarcity(data, allPicks, currentPick, season, leagueSettings, adpLeagueType, adpLeagueFormat);
   const rankedPlayers = getRankedPlayers(
     data, allPicks, myPicks, leagueSettings, currentRound, currentPick, season,
-    positionPctLookup, rankLookup, draftSlot, adpLeagueType,
+    positionPctLookup, rankLookup, draftSlot, adpLeagueType, undefined, adpLeagueFormat,
   );
 
   return {

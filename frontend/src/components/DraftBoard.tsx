@@ -80,6 +80,7 @@ export default function DraftBoard({ state, onStateChange }: Props) {
     <AdpWatchlist
       season={state.season}
       leagueType={state.league_type}
+      leagueFormat={state.league_format}
       takenNames={state.all_picks.map((p) => p.name)}
       onClose={() => setShowAdpBoard(false)}
     />

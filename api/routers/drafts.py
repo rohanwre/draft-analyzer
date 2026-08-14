@@ -138,8 +138,10 @@ def simulate_to_user_turn(draft_id: str, cursor=Depends(get_db_cursor)):
 
     # Resolved once and fetched once outside the loop — this used to run both of these
     # queries fresh on every single simulated pick, which is where the slowdown came from.
-    adp_league_type = resolve_adp_league_type(cursor, session["season"], session["league_type"])
-    pool = fetch_adp_pool(cursor, session["season"], adp_league_type)
+    # resolve_adp_league_type now also resolves league_format (dynasty ADP support) -
+    # this API layer doesn't have a format selector yet, so it stays redraft-only here.
+    adp_league_type, adp_league_format = resolve_adp_league_type(cursor, session["season"], session["league_type"])
+    pool = fetch_adp_pool(cursor, session["season"], adp_league_type, adp_league_format)
 
     # Picks accumulate on the in-memory `session` dict through the whole loop and are
     # only written to the DB once at the end (save_session below) — round-tripping a

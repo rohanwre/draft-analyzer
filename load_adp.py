@@ -136,31 +136,35 @@ def merge_sources(named_sources, tiebreak_source=None):
         }
     return result
 
-def insert_merged(cursor, merged, season, league_type):
+def insert_merged(cursor, merged, season, league_type, league_format="redraft"):
     # Delete-then-insert instead of upsert-only: a merge-key change (like this fix) can
     # change which player_name ends up stored (e.g. "James Cook" -> "James Cook III"),
     # and ON DUPLICATE KEY UPDATE can't clean up the old spelling's now-stale row since
     # it no longer matches on player_name. load_adp.py is authoritative for these
-    # (season, league_type) rows, so a full replace each run is safe and self-healing.
-    cursor.execute("DELETE FROM adp WHERE season = %s AND league_type = %s", (season, league_type))
+    # (season, league_type, league_format) rows, so a full replace each run is safe and
+    # self-healing.
+    cursor.execute(
+        "DELETE FROM adp WHERE season = %s AND league_type = %s AND league_format = %s",
+        (season, league_type, league_format),
+    )
 
     inserted = 0
     skipped = 0
     for key, data in merged.items():
         try:
             cursor.execute("""
-                INSERT INTO adp (player_name, position, adp, season, league_type, tiebreak_adp)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO adp (player_name, position, adp, season, league_type, league_format, tiebreak_adp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE adp = %s, tiebreak_adp = %s
             """, (
                 data["name"], data["position"], data["adp"],
-                season, league_type, data["tiebreak_adp"],
+                season, league_type, league_format, data["tiebreak_adp"],
                 data["adp"], data["tiebreak_adp"],
             ))
             inserted += 1
         except Exception as e:
             skipped += 1
-    print(f"  {league_type} season {season}: inserted/updated {inserted}, skipped {skipped}")
+    print(f"  {league_format} {league_type} season {season}: inserted/updated {inserted}, skipped {skipped}")
     return inserted
 
 ADP_DATA_DIR = "adp_data"
@@ -214,6 +218,29 @@ def load_all():
         print(f"  Season {season}: merging {len(sources)} source(s)")
         merged = merge_sources(sources, tiebreak_source="sleeper")
         insert_merged(cursor, merged, season, "qb_premium")
+        db.commit()
+
+    # dynasty superflex — average FantasyPros' dynasty/OP rankings export with a
+    # DraftSharks dynasty SF board (see adp_data/draftsharks_adp_dynasty_sf_2026.csv;
+    # both files happen to already match load_fp_adp's expected Player/POS/AVG-or-RK
+    # shape, so no new loader was needed). Only superflex is covered - real dynasty ADP
+    # sources skew heavily superflex, and resolve_adp_league_type's fallback chain
+    # (advisor.py) covers a standard-league-type dynasty session by falling back to this
+    # data rather than crossing into redraft numbers, which would be a worse mismatch.
+    dynasty_sflex_sources = [
+        ("fp",          load_fp_adp, os.path.join(ADP_DATA_DIR, "fp_adp_dynasty_sf_2026.csv"),         2026, "qb_premium"),
+        ("draftsharks", load_fp_adp, os.path.join(ADP_DATA_DIR, "draftsharks_adp_dynasty_sf_2026.csv"), 2026, "qb_premium"),
+    ]
+    dynasty_sflex_by_season = {}
+    for source_name, loader, filepath, season, league_type in dynasty_sflex_sources:
+        data = loader(filepath, season, league_type)
+        dynasty_sflex_by_season.setdefault(season, {})[source_name] = data
+
+    print("Loading dynasty superflex ADP...")
+    for season, sources in dynasty_sflex_by_season.items():
+        print(f"  Season {season}: merging {len(sources)} source(s)")
+        merged = merge_sources(sources)
+        insert_merged(cursor, merged, season, "qb_premium", league_format="dynasty")
         db.commit()
 
     cursor.close()

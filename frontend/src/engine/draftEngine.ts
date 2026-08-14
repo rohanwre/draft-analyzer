@@ -220,8 +220,8 @@ export async function simulateToUserTurn(draftId: string): Promise<DraftState> {
   const session = getSessionOrThrow(draftId);
   const data = await loadStaticData();
 
-  const adpLeagueType = resolveAdpLeagueType(data, session.season, session.leagueType);
-  const pool = fetchAdpPool(data, session.season, adpLeagueType);
+  const [adpLeagueType, adpLeagueFormat] = resolveAdpLeagueType(data, session.season, session.leagueType, session.leagueFormat);
+  const pool = fetchAdpPool(data, session.season, adpLeagueType, adpLeagueFormat);
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
