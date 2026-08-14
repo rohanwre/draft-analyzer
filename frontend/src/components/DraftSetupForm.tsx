@@ -19,6 +19,7 @@ export default function DraftSetupForm({ onCreated }: Props) {
   const [flex, setFlex] = useState(1);
   const [sflex, setSflex] = useState(0);
   const [tePremium, setTePremium] = useState(false);
+  const [leagueFormat, setLeagueFormat] = useState<"redraft" | "dynasty">("redraft");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -42,6 +43,7 @@ export default function DraftSetupForm({ onCreated }: Props) {
         flex,
         sflex,
         te_premium: tePremium,
+        league_format: leagueFormat,
       });
       onCreated(state);
     } catch (err) {
@@ -86,6 +88,19 @@ export default function DraftSetupForm({ onCreated }: Props) {
         Rounds
         <input type="number" min={1} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
       </label>
+      <label>
+        Draft format
+        <select value={leagueFormat} onChange={(e) => setLeagueFormat(e.target.value as "redraft" | "dynasty")}>
+          <option value="redraft">Redraft</option>
+          <option value="dynasty">Dynasty (startup draft)</option>
+        </select>
+      </label>
+      {leagueFormat === "dynasty" && (
+        <p className="hint-text">
+          Dynasty recommendations are based on startup drafts only, weighted by each team's
+          success across the following seasons — not just one year's result.
+        </p>
+      )}
 
       <h3>League settings</h3>
       <div className="settings-grid">

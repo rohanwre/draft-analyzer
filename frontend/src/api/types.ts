@@ -10,6 +10,7 @@ export interface CreateDraftRequest {
   flex: number;
   sflex: number;
   te_premium: boolean;
+  league_format?: string;
 }
 
 export interface Player {
@@ -69,6 +70,7 @@ export interface Recommendation {
   sample_size: number | null;
   league_size: number;
   league_type: string;
+  league_format: string;
   trends: TrendItem[];
   positional_needs: PositionalNeedItem[];
   top_available_by_position: AvailablePositionGroup[];
@@ -92,6 +94,7 @@ export interface DraftState {
   season: number;
   total_rounds: number;
   league_type: string;
+  league_format: string;
   league_settings: Record<string, number | string>;
   all_picks: PickRecord[];
   my_picks: PickRecord[];

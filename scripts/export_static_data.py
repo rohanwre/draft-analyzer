@@ -23,10 +23,12 @@ load_dotenv()
 OUT_DIR = Path(__file__).parent.parent / "frontend" / "public" / "data"
 
 LEAGUE_TYPES = ["standard", "qb_premium"]
+LEAGUE_FORMATS = ["redraft", "keeper", "dynasty"]
 BUCKETS = ["NONE", "LIGHT", "MODERATE", "HEAVY"]
 POSITIONS = ["QB", "RB", "WR", "TE"]
 
 LEAGUE_TYPE_IDX = {v: i for i, v in enumerate(LEAGUE_TYPES)}
+LEAGUE_FORMAT_IDX = {v: i for i, v in enumerate(LEAGUE_FORMATS)}
 BUCKET_IDX = {v: i for i, v in enumerate(BUCKETS)}
 POSITION_IDX = {v: i for i, v in enumerate(POSITIONS)}
 
@@ -61,50 +63,49 @@ def export_adp(cursor):
 
 
 def export_round1_trend_stats(cursor):
-    # league_format='redraft' - round1_trend_stats now also holds keeper/dynasty rows (see
-    # build_trend_stats.py); the frontend has no format selector yet, so exporting
-    # everything would silently blend dynasty draft dynamics into what's presented as
-    # ordinary redraft trends. Drop this filter once the frontend gains a format selector.
+    # league_format is exported as its own dimension now (redraft/keeper/dynasty) - the
+    # frontend's format selector filters on it client-side (see engine/advisor.ts), same
+    # pattern as leagueTypeIdx/bucket indices below.
     cursor.execute("""
-        SELECT draft_slot, league_size, league_type, te_premium, position, total_count, success_count
+        SELECT draft_slot, league_size, league_type, league_format, te_premium, position, total_count, success_count
         FROM round1_trend_stats
-        WHERE league_format = 'redraft'
     """)
     rows = [
-        [slot, size, LEAGUE_TYPE_IDX[ltype], tep, POSITION_IDX[pos], total, success]
-        for slot, size, ltype, tep, pos, total, success in cursor.fetchall()
+        [slot, size, LEAGUE_TYPE_IDX[ltype], LEAGUE_FORMAT_IDX[fmt], tep, POSITION_IDX[pos], total, success]
+        for slot, size, ltype, fmt, tep, pos, total, success in cursor.fetchall()
     ]
     write_json("round1_trend_stats.json", {
         "leagueTypes": LEAGUE_TYPES,
+        "leagueFormats": LEAGUE_FORMATS,
         "positions": POSITIONS,
-        "columns": ["draftSlot", "leagueSize", "leagueTypeIdx", "tePremium", "positionIdx", "total", "success"],
+        "columns": ["draftSlot", "leagueSize", "leagueTypeIdx", "leagueFormatIdx", "tePremium", "positionIdx", "total", "success"],
         "rows": rows,
     })
     print(f"  round1_trend_stats: {len(rows)} rows")
 
 
 def export_draft_trend_stats(cursor):
-    # league_format='redraft' - see export_round1_trend_stats for why
+    # league_format - see export_round1_trend_stats for why this is a dimension, not a filter
     cursor.execute("""
-        SELECT league_size, league_type, te_premium, round, qb_bucket, rb_bucket,
+        SELECT league_size, league_type, league_format, te_premium, round, qb_bucket, rb_bucket,
                wr_bucket, te_bucket, position, total_count, success_count
         FROM draft_trend_stats
-        WHERE league_format = 'redraft'
     """)
     rows = [
         [
-            size, LEAGUE_TYPE_IDX[ltype], tep, rnd,
+            size, LEAGUE_TYPE_IDX[ltype], LEAGUE_FORMAT_IDX[fmt], tep, rnd,
             BUCKET_IDX[qb_b], BUCKET_IDX[rb_b], BUCKET_IDX[wr_b], BUCKET_IDX[te_b],
             POSITION_IDX[pos], total, success,
         ]
-        for size, ltype, tep, rnd, qb_b, rb_b, wr_b, te_b, pos, total, success in cursor.fetchall()
+        for size, ltype, fmt, tep, rnd, qb_b, rb_b, wr_b, te_b, pos, total, success in cursor.fetchall()
     ]
     write_json("draft_trend_stats.json", {
         "leagueTypes": LEAGUE_TYPES,
+        "leagueFormats": LEAGUE_FORMATS,
         "buckets": BUCKETS,
         "positions": POSITIONS,
         "columns": [
-            "leagueSize", "leagueTypeIdx", "tePremium", "round",
+            "leagueSize", "leagueTypeIdx", "leagueFormatIdx", "tePremium", "round",
             "qbBucketIdx", "rbBucketIdx", "wrBucketIdx", "teBucketIdx",
             "positionIdx", "total", "success",
         ],

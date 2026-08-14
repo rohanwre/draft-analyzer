@@ -149,22 +149,23 @@ export function recordPick(
 
 function queryRound1Stats(
   data: StaticData, draftSlot: number, leagueSize: number, leagueType: LeagueType, tePremium: number | null,
+  leagueFormat: string = "redraft",
 ): Partial<Record<Position, PositionStats>> {
   const key = tePremium !== null
-    ? `${draftSlot}|${leagueType}|${leagueSize}|${tePremium}`
-    : `${draftSlot}|${leagueType}|${leagueSize}`;
+    ? `${leagueFormat}|${draftSlot}|${leagueType}|${leagueSize}|${tePremium}`
+    : `${leagueFormat}|${draftSlot}|${leagueType}|${leagueSize}`;
   const map = tePremium !== null ? data.round1Full : data.round1NoTep;
   return map.get(key) ?? {};
 }
 
 function queryTrendStats(
   data: StaticData, leagueSize: number, leagueType: LeagueType, tePremium: number | null,
-  currentRound: number, buckets: Record<Position, string>,
+  currentRound: number, buckets: Record<Position, string>, leagueFormat: string = "redraft",
 ): Partial<Record<Position, PositionStats>> {
   const bucketKey = `${buckets.QB}|${buckets.RB}|${buckets.WR}|${buckets.TE}`;
   const key = tePremium !== null
-    ? `${leagueSize}|${leagueType}|${tePremium}|${currentRound}|${bucketKey}`
-    : `${leagueSize}|${leagueType}|${currentRound}|${bucketKey}`;
+    ? `${leagueFormat}|${leagueSize}|${leagueType}|${tePremium}|${currentRound}|${bucketKey}`
+    : `${leagueFormat}|${leagueSize}|${leagueType}|${currentRound}|${bucketKey}`;
   const map = tePremium !== null ? data.trendFull : data.trendNoTep;
   return map.get(key) ?? {};
 }
@@ -176,17 +177,18 @@ function sumTotal(stats: Partial<Record<Position, PositionStats>>): number {
 function findSimilarDrafts(
   data: StaticData, draftSlot: number, leagueSize: number, leagueType: LeagueType,
   tePremium: number | null, currentRound: number, buckets: Record<Position, string>,
+  leagueFormat: string = "redraft",
 ): Partial<Record<Position, PositionStats>> {
   if (currentRound === 1) {
-    let results = queryRound1Stats(data, draftSlot, leagueSize, leagueType, tePremium);
+    let results = queryRound1Stats(data, draftSlot, leagueSize, leagueType, tePremium, leagueFormat);
     if (sumTotal(results) < MIN_SAMPLE_SIZE && tePremium !== null) {
-      results = queryRound1Stats(data, draftSlot, leagueSize, leagueType, null);
+      results = queryRound1Stats(data, draftSlot, leagueSize, leagueType, null, leagueFormat);
     }
     return results;
   }
-  let results = queryTrendStats(data, leagueSize, leagueType, tePremium, currentRound, buckets);
+  let results = queryTrendStats(data, leagueSize, leagueType, tePremium, currentRound, buckets, leagueFormat);
   if (sumTotal(results) < MIN_SAMPLE_SIZE && tePremium !== null) {
-    results = queryTrendStats(data, leagueSize, leagueType, null, currentRound, buckets);
+    results = queryTrendStats(data, leagueSize, leagueType, null, currentRound, buckets, leagueFormat);
   }
   return results;
 }
@@ -209,8 +211,11 @@ function calculateRecommendation(positionStats: Partial<Record<Position, Positio
   return recommendations;
 }
 
-function getGeneralRoundTrends(data: StaticData, leagueSize: number, leagueType: LeagueType, currentRound: number): TrendItem[] {
-  const key = `${leagueSize}|${leagueType}|${currentRound}`;
+function getGeneralRoundTrends(
+  data: StaticData, leagueSize: number, leagueType: LeagueType, currentRound: number,
+  leagueFormat: string = "redraft",
+): TrendItem[] {
+  const key = `${leagueFormat}|${leagueSize}|${leagueType}|${currentRound}`;
   const stats = data.trendGeneral.get(key) ?? {};
   return calculateRecommendation(stats).map(({ position, top_two_pct }) => ({ position, top_two_pct }));
 }
@@ -550,6 +555,7 @@ export interface Recommendation {
   sample_size: number | null;
   league_size: number;
   league_type: string;
+  league_format: string;
   trends: TrendItem[];
   positional_needs: Array<{ position: string; urgency: string }>;
   top_available_by_position: Array<{
@@ -565,10 +571,11 @@ export function buildRecommendation(
   data: StaticData, draftSlot: number, leagueSize: number, leagueType: LeagueType, tePremium: number | null,
   positionSequence: string[], currentRound: number, allPicks: Array<[string, string]>, myPicks: MyPick[],
   season: number, leagueSettings: LeagueSettings, currentPick: number,
+  leagueFormat: string = "redraft",
 ): Recommendation {
   const totalRounds = leagueSettings.total_rounds ?? 15;
   const buckets = computeWeightedBuckets(myPicks, totalRounds);
-  const similar = findSimilarDrafts(data, draftSlot, leagueSize, leagueType, tePremium, currentRound, buckets);
+  const similar = findSimilarDrafts(data, draftSlot, leagueSize, leagueType, tePremium, currentRound, buckets, leagueFormat);
   const adpLeagueType = resolveAdpLeagueType(data, season, leagueType);
   const rankLookup = getAdpRankLookup(data, season, adpLeagueType);
 
@@ -594,7 +601,7 @@ export function buildRecommendation(
   } else {
     trendSource = "general_trends";
     sampleSize = null;
-    const rows = getGeneralRoundTrends(data, leagueSize, leagueType, currentRound);
+    const rows = getGeneralRoundTrends(data, leagueSize, leagueType, currentRound, leagueFormat);
     trends = [];
     for (const { position, top_two_pct } of rows) {
       positionPctLookup[position as Position] = top_two_pct;
@@ -648,6 +655,7 @@ export function buildRecommendation(
     sample_size: sampleSize,
     league_size: leagueSize,
     league_type: leagueType,
+    league_format: leagueFormat,
     trends,
     positional_needs: needs.map(({ position, urgency }) => ({ position, urgency })),
     top_available_by_position: topAvailableByPosition,

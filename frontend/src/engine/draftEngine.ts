@@ -16,6 +16,7 @@ interface Session {
   season: number;
   totalRounds: number;
   leagueType: LeagueType;
+  leagueFormat: string;
   tePremium: number;
   leagueSettings: {
     qb: number; rb: number; wr: number; te: number; flex: number; sflex: number;
@@ -41,6 +42,9 @@ export interface CreateDraftPayload {
   total_rounds: number;
   qb: number; rb: number; wr: number; te: number; flex: number; sflex: number;
   te_premium: boolean;
+  // "redraft" (default) or "dynasty" - see engine/advisor.ts. Startup-draft dynasty
+  // trends only (no live rookie-draft-only support yet, see build_trend_stats.py).
+  league_format?: string;
 }
 
 function computeTurnState(allPicks: unknown[], leagueSize: number, totalRounds: number, draftSlot: number) {
@@ -72,6 +76,7 @@ export interface DraftState {
   season: number;
   total_rounds: number;
   league_type: string;
+  league_format: string;
   league_settings: Record<string, number | string>;
   all_picks: Array<{ round: number | null; pick_slot: number | null; position: string; name: string; is_user_pick: boolean }>;
   my_picks: Array<{ round: number; pick_slot: number; position: string; name: string; is_user_pick: true }>;
@@ -111,7 +116,7 @@ async function serializeState(session: Session): Promise<DraftState> {
     recommendation = buildRecommendation(
       data, session.draftSlot, session.leagueSize, session.leagueType, session.tePremium,
       positionSequence, turn.current_round, session.allPicks, session.myPicks, session.season,
-      session.leagueSettings, turn.current_global_pick,
+      session.leagueSettings, turn.current_global_pick, session.leagueFormat,
     );
   }
 
@@ -122,6 +127,7 @@ async function serializeState(session: Session): Promise<DraftState> {
     season: session.season,
     total_rounds: session.totalRounds,
     league_type: session.leagueType,
+    league_format: session.leagueFormat,
     league_settings: session.leagueSettings,
     all_picks: allPicksOut,
     my_picks: myPicksOut,
@@ -142,6 +148,7 @@ export async function createDraft(payload: CreateDraftPayload): Promise<DraftSta
     season: payload.season,
     totalRounds: payload.total_rounds,
     leagueType,
+    leagueFormat: payload.league_format === "dynasty" ? "dynasty" : "redraft",
     tePremium,
     leagueSettings: {
       qb: payload.qb, rb: payload.rb, wr: payload.wr, te: payload.te,

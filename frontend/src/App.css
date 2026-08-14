@@ -32,7 +32,8 @@ h3 {
   font-size: 14px;
 }
 
-.setup-form input[type="number"] {
+.setup-form input[type="number"],
+.setup-form select {
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -572,6 +573,12 @@ button:disabled {
 .error-text {
   color: #d64545;
   font-size: 13px;
+}
+
+.hint-text {
+  color: #6b7280;
+  font-size: 13px;
+  margin-top: -8px;
 }
 
 .roster-summary {

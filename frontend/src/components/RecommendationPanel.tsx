@@ -18,6 +18,7 @@ export default function RecommendationPanel({ recommendation: rec, onSelectPlaye
           {rec.trend_source === "similar_drafts"
             ? `Based on ${rec.sample_size} similar historical drafts`
             : `General round trends (all ${rec.league_size}-team, ${rec.league_type} leagues)`}
+          {rec.league_format === "dynasty" ? " — dynasty startup drafts" : ""}
         </h3>
         {rec.trends.map((t) => (
           <TrendBar key={t.position} position={t.position} pct={t.top_two_pct} />
