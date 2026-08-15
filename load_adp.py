@@ -221,15 +221,23 @@ def load_all():
         db.commit()
 
     # dynasty superflex — average FantasyPros' dynasty/OP rankings export with a
-    # DraftSharks dynasty SF board (see adp_data/draftsharks_adp_dynasty_sf_2026.csv;
-    # both files happen to already match load_fp_adp's expected Player/POS/AVG-or-RK
-    # shape, so no new loader was needed). Only superflex is covered - real dynasty ADP
-    # sources skew heavily superflex, and resolve_adp_league_type's fallback chain
-    # (advisor.py) covers a standard-league-type dynasty session by falling back to this
-    # data rather than crossing into redraft numbers, which would be a worse mismatch.
+    # DraftSharks dynasty SF board and a Sleeper dynasty PPR ADP slice (see
+    # adp_data/draftsharks_adp_dynasty_sf_2026.csv, sleeper_adp_dynasty_ppr_2026.csv; all
+    # three happen to already match load_fp_adp's expected Player/POS/AVG-or-RK shape, so
+    # no new loader was needed). The Sleeper source only covers a mid/late slice of the
+    # board (ADP ~229-301, 73 players, hand-transcribed from a paste with abbreviated
+    # first-initial names resolved to full names via last-name+position+first-initial
+    # matching against the other two sources, verified against real rosters for the 6
+    # ambiguous cases) - merge_sources unions keys, so players outside that slice just
+    # average the other two sources, same as any other partial source. Only superflex is
+    # covered - real dynasty ADP sources skew heavily superflex, and
+    # resolve_adp_league_type's fallback chain (advisor.py) covers a standard-league-type
+    # dynasty session by falling back to this data rather than crossing into redraft
+    # numbers, which would be a worse mismatch.
     dynasty_sflex_sources = [
         ("fp",          load_fp_adp, os.path.join(ADP_DATA_DIR, "fp_adp_dynasty_sf_2026.csv"),         2026, "qb_premium"),
         ("draftsharks", load_fp_adp, os.path.join(ADP_DATA_DIR, "draftsharks_adp_dynasty_sf_2026.csv"), 2026, "qb_premium"),
+        ("sleeper",     load_fp_adp, os.path.join(ADP_DATA_DIR, "sleeper_adp_dynasty_ppr_2026.csv"),    2026, "qb_premium"),
     ]
     dynasty_sflex_by_season = {}
     for source_name, loader, filepath, season, league_type in dynasty_sflex_sources:
