@@ -17,6 +17,7 @@ interface Session {
   totalRounds: number;
   leagueType: LeagueType;
   leagueFormat: string;
+  scoringType: string;
   tePremium: number;
   leagueSettings: {
     qb: number; rb: number; wr: number; te: number; flex: number; sflex: number;
@@ -45,6 +46,10 @@ export interface CreateDraftPayload {
   // "redraft" (default) or "dynasty" - see engine/advisor.ts. Startup-draft dynasty
   // trends only (no live rookie-draft-only support yet, see build_trend_stats.py).
   league_format?: string;
+  // "ppr" (default), "half_ppr", or "standard" - see engine/advisor.ts. Only the
+  // historical trend match is scoring-aware so far; the ADP board itself isn't split
+  // by scoring type yet (see build_trend_stats.py's module docstring).
+  scoring_type?: string;
 }
 
 function computeTurnState(allPicks: unknown[], leagueSize: number, totalRounds: number, draftSlot: number) {
@@ -77,6 +82,7 @@ export interface DraftState {
   total_rounds: number;
   league_type: string;
   league_format: string;
+  scoring_type: string;
   league_settings: Record<string, number | string>;
   all_picks: Array<{ round: number | null; pick_slot: number | null; position: string; name: string; is_user_pick: boolean }>;
   my_picks: Array<{ round: number; pick_slot: number; position: string; name: string; is_user_pick: true }>;
@@ -116,7 +122,7 @@ async function serializeState(session: Session): Promise<DraftState> {
     recommendation = buildRecommendation(
       data, session.draftSlot, session.leagueSize, session.leagueType, session.tePremium,
       positionSequence, turn.current_round, session.allPicks, session.myPicks, session.season,
-      session.leagueSettings, turn.current_global_pick, session.leagueFormat,
+      session.leagueSettings, turn.current_global_pick, session.leagueFormat, session.scoringType,
     );
   }
 
@@ -128,6 +134,7 @@ async function serializeState(session: Session): Promise<DraftState> {
     total_rounds: session.totalRounds,
     league_type: session.leagueType,
     league_format: session.leagueFormat,
+    scoring_type: session.scoringType,
     league_settings: session.leagueSettings,
     all_picks: allPicksOut,
     my_picks: myPicksOut,
@@ -149,6 +156,7 @@ export async function createDraft(payload: CreateDraftPayload): Promise<DraftSta
     totalRounds: payload.total_rounds,
     leagueType,
     leagueFormat: payload.league_format === "dynasty" ? "dynasty" : "redraft",
+    scoringType: ["half_ppr", "standard"].includes(payload.scoring_type ?? "") ? payload.scoring_type! : "ppr",
     tePremium,
     leagueSettings: {
       qb: payload.qb, rb: payload.rb, wr: payload.wr, te: payload.te,

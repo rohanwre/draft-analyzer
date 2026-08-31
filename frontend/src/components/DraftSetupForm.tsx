@@ -20,6 +20,7 @@ export default function DraftSetupForm({ onCreated }: Props) {
   const [sflex, setSflex] = useState(0);
   const [tePremium, setTePremium] = useState(false);
   const [leagueFormat, setLeagueFormat] = useState<"redraft" | "dynasty">("redraft");
+  const [scoringType, setScoringType] = useState<"ppr" | "half_ppr" | "standard">("ppr");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -44,6 +45,7 @@ export default function DraftSetupForm({ onCreated }: Props) {
         sflex,
         te_premium: tePremium,
         league_format: leagueFormat,
+        scoring_type: scoringType,
       });
       onCreated(state);
     } catch (err) {
@@ -99,6 +101,21 @@ export default function DraftSetupForm({ onCreated }: Props) {
         <p className="hint-text">
           Dynasty recommendations are based on startup drafts only, weighted by each team's
           success across the following seasons — not just one year's result.
+        </p>
+      )}
+
+      <label>
+        Scoring format
+        <select value={scoringType} onChange={(e) => setScoringType(e.target.value as "ppr" | "half_ppr" | "standard")}>
+          <option value="ppr">PPR (full point per reception)</option>
+          <option value="half_ppr">Half PPR</option>
+          <option value="standard">Standard (no PPR)</option>
+        </select>
+      </label>
+      {scoringType !== "ppr" && (
+        <p className="hint-text">
+          Historical trends are matched against real {scoringType === "half_ppr" ? "half-PPR" : "standard"} drafts.
+          The ADP board itself is still averaged from full-PPR sources.
         </p>
       )}
 

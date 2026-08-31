@@ -32,6 +32,15 @@ that's the draft a live user would actually be getting advice for, and its succe
 is sustained_success_rate (see compute_sustained_success.py) - the team's success rate
 across every season of the lineage so far, not just the startup season's own single-year
 top_pct_optimal - because one good/bad year doesn't say much about a dynasty draft.
+
+scoring_type (ppr/half_ppr/standard) is also its own dimension, same mechanical pattern -
+leagues.scoring_type stores Sleeper's raw "rec" points-per-reception setting as a string
+('1.0'/'0.5'/'0.0', occasionally '0'), normalized here into the same three buckets
+compute_optimal_lineups.py already uses to pick the right SCORING_FIELD when computing
+each roster's optimal_points_total. Pass-catching backs/TEs are worth meaningfully less
+outside full PPR, which shows up as a real difference in which position correlates with
+success - pooling all three into one row would blend three different signals. Defaults to
+'ppr' everywhere downstream (this app's original, still by far the largest, behavior).
 """
 import json
 from advisor import get_db, normalize_name, bucket_score
@@ -42,13 +51,29 @@ POSITIONS = ("QB", "RB", "WR", "TE")
 def parse_te_premium(val):
     return 1 if val else 0
 
+def parse_scoring_type(val):
+    try:
+        rec = float(val)
+    except (TypeError, ValueError):
+        return "ppr"
+    if rec >= 0.75:
+        return "ppr"
+    if rec >= 0.25:
+        return "half_ppr"
+    return "standard"
+
 def create_tables(cursor, db):
+    # Full DROP + rebuild rather than ALTER - these are pre-aggregated summary tables
+    # (never the source of truth, see module docstring) that this script always fully
+    # replaces in one run anyway, so there's no data to migrate in place.
+    cursor.execute("DROP TABLE IF EXISTS round1_trend_stats")
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS round1_trend_stats (
+        CREATE TABLE round1_trend_stats (
             draft_slot INT NOT NULL,
             league_size INT NOT NULL,
             league_type VARCHAR(20) NOT NULL,
             league_format VARCHAR(10) NOT NULL,
+            scoring_type VARCHAR(10) NOT NULL,
             te_premium TINYINT NOT NULL,
             position VARCHAR(5) NOT NULL,
             total_count INT NOT NULL,
@@ -56,14 +81,16 @@ def create_tables(cursor, db):
             -- a sum of fractional sustained_success_rate values for dynasty, hence FLOAT -
             -- success_count/total_count is still a valid average success rate either way
             success_count FLOAT NOT NULL,
-            PRIMARY KEY (draft_slot, league_size, league_type, league_format, te_premium, position)
+            PRIMARY KEY (draft_slot, league_size, league_type, league_format, scoring_type, te_premium, position)
         )
     """)
+    cursor.execute("DROP TABLE IF EXISTS draft_trend_stats")
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS draft_trend_stats (
+        CREATE TABLE draft_trend_stats (
             league_size INT NOT NULL,
             league_type VARCHAR(20) NOT NULL,
             league_format VARCHAR(10) NOT NULL,
+            scoring_type VARCHAR(10) NOT NULL,
             te_premium TINYINT NOT NULL,
             round INT NOT NULL,
             qb_bucket VARCHAR(10) NOT NULL,
@@ -73,23 +100,26 @@ def create_tables(cursor, db):
             position VARCHAR(5) NOT NULL,
             total_count INT NOT NULL,
             success_count FLOAT NOT NULL,
-            PRIMARY KEY (league_size, league_type, league_format, te_premium, round,
+            PRIMARY KEY (league_size, league_type, league_format, scoring_type, te_premium, round,
                          qb_bucket, rb_bucket, wr_bucket, te_bucket, position)
         )
     """)
     db.commit()
-    print("Tables ready (created if they didn't already exist).")
+    print("Tables ready (dropped and recreated with the current schema).")
 
 def load_leagues(cursor):
     print("Loading leagues...")
     cursor.execute("""
-        SELECT league_id, league_size, league_type, te_premium, league_format
+        SELECT league_id, league_size, league_type, te_premium, league_format, scoring_type
         FROM leagues WHERE season BETWEEN %s AND %s AND season_type = 'regular'
         AND league_format IS NOT NULL
     """, (SEASON_MIN, SEASON_MAX))
     leagues = {}
-    for league_id, league_size, league_type, te_premium, league_format in cursor.fetchall():
-        leagues[league_id] = (league_size, league_type, parse_te_premium(te_premium), league_format)
+    for league_id, league_size, league_type, te_premium, league_format, scoring_type in cursor.fetchall():
+        leagues[league_id] = (
+            league_size, league_type, parse_te_premium(te_premium), league_format,
+            parse_scoring_type(scoring_type),
+        )
     print(f"  {len(leagues)} leagues loaded")
     return leagues
 
@@ -204,7 +234,7 @@ def main():
         league = leagues.get(league_id)
         if league is None:
             continue
-        league_size, league_type, te_premium, league_format = league
+        league_size, league_type, te_premium, league_format, scoring_type = league
         success_label = outcomes.get((league_id, owner_id))
         if success_label is None:
             continue
@@ -218,14 +248,14 @@ def main():
 
         for round_num, pick_no, position in picks:
             if round_num == 1 and not seen_round1:
-                key = (draft_slot, league_size, league_type, league_format, te_premium, position)
+                key = (draft_slot, league_size, league_type, league_format, scoring_type, te_premium, position)
                 entry = round1_stats.setdefault(key, [0, 0])
                 entry[0] += 1
                 entry[1] += success_label
                 seen_round1 = True
             else:
                 buckets = tuple(bucket_score(cumulative[p]) for p in POSITIONS)
-                key = (league_size, league_type, league_format, te_premium, round_num, *buckets, position)
+                key = (league_size, league_type, league_format, scoring_type, te_premium, round_num, *buckets, position)
                 entry = trend_stats.setdefault(key, [0, 0])
                 entry[0] += 1
                 entry[1] += success_label
@@ -249,29 +279,29 @@ def main():
 
     print("Writing round1_trend_stats...")
     batch = [
-        (slot, size, ltype, fmt, tep, pos, total, success)
-        for (slot, size, ltype, fmt, tep, pos), (total, success) in round1_stats.items()
+        (slot, size, ltype, fmt, stype, tep, pos, total, success)
+        for (slot, size, ltype, fmt, stype, tep, pos), (total, success) in round1_stats.items()
     ]
     for i in range(0, len(batch), 5000):
         cursor.executemany("""
             INSERT INTO round1_trend_stats
-                (draft_slot, league_size, league_type, league_format, te_premium, position, total_count, success_count)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (draft_slot, league_size, league_type, league_format, scoring_type, te_premium, position, total_count, success_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, batch[i:i + 5000])
     db.commit()
     print(f"  {len(batch)} rows written")
 
     print("Writing draft_trend_stats...")
     batch = [
-        (size, ltype, fmt, tep, rnd, qb_b, rb_b, wr_b, te_b, pos, total, success)
-        for (size, ltype, fmt, tep, rnd, qb_b, rb_b, wr_b, te_b, pos), (total, success) in trend_stats.items()
+        (size, ltype, fmt, stype, tep, rnd, qb_b, rb_b, wr_b, te_b, pos, total, success)
+        for (size, ltype, fmt, stype, tep, rnd, qb_b, rb_b, wr_b, te_b, pos), (total, success) in trend_stats.items()
     ]
     for i in range(0, len(batch), 5000):
         cursor.executemany("""
             INSERT INTO draft_trend_stats
-                (league_size, league_type, league_format, te_premium, round, qb_bucket, rb_bucket,
+                (league_size, league_type, league_format, scoring_type, te_premium, round, qb_bucket, rb_bucket,
                  wr_bucket, te_bucket, position, total_count, success_count)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, batch[i:i + 5000])
     db.commit()
     print(f"  {len(batch)} rows written")

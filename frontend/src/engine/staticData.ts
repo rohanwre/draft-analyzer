@@ -5,6 +5,7 @@
 export type Position = "QB" | "RB" | "WR" | "TE";
 export type LeagueType = "standard" | "qb_premium";
 export type LeagueFormat = "redraft" | "keeper" | "dynasty";
+export type ScoringType = "ppr" | "half_ppr" | "standard";
 export type Bucket = "NONE" | "LIGHT" | "MODERATE" | "HEAVY";
 
 export interface AdpRow {
@@ -25,6 +26,7 @@ export interface PositionStats {
 interface Round1Json {
   leagueTypes: string[];
   leagueFormats: string[];
+  scoringTypes: string[];
   positions: string[];
   rows: number[][];
 }
@@ -32,6 +34,7 @@ interface Round1Json {
 interface DraftTrendJson {
   leagueTypes: string[];
   leagueFormats: string[];
+  scoringTypes: string[];
   buckets: string[];
   positions: string[];
   rows: number[][];
@@ -39,15 +42,15 @@ interface DraftTrendJson {
 
 export interface StaticData {
   adp: AdpRow[];
-  // key: `${leagueFormat}|${leagueSize}|${leagueType}|${tePremium}|${round}|${qbBucket}|${rbBucket}|${wrBucket}|${teBucket}`
+  // key: `${leagueFormat}|${scoringType}|${leagueSize}|${leagueType}|${tePremium}|${round}|${qbBucket}|${rbBucket}|${wrBucket}|${teBucket}`
   trendFull: Map<string, Partial<Record<Position, PositionStats>>>;
-  // key: `${leagueFormat}|${leagueSize}|${leagueType}|${round}|${qbBucket}|${rbBucket}|${wrBucket}|${teBucket}` (te_premium ignored)
+  // key: `${leagueFormat}|${scoringType}|${leagueSize}|${leagueType}|${round}|${qbBucket}|${rbBucket}|${wrBucket}|${teBucket}` (te_premium ignored)
   trendNoTep: Map<string, Partial<Record<Position, PositionStats>>>;
-  // key: `${leagueFormat}|${leagueSize}|${leagueType}|${round}` (te_premium and buckets ignored)
+  // key: `${leagueFormat}|${scoringType}|${leagueSize}|${leagueType}|${round}` (te_premium and buckets ignored)
   trendGeneral: Map<string, Partial<Record<Position, PositionStats>>>;
-  // key: `${leagueFormat}|${draftSlot}|${leagueSize}|${leagueType}|${tePremium}`
+  // key: `${leagueFormat}|${scoringType}|${draftSlot}|${leagueSize}|${leagueType}|${tePremium}`
   round1Full: Map<string, Partial<Record<Position, PositionStats>>>;
-  // key: `${leagueFormat}|${draftSlot}|${leagueSize}|${leagueType}` (te_premium ignored)
+  // key: `${leagueFormat}|${scoringType}|${draftSlot}|${leagueSize}|${leagueType}` (te_premium ignored)
   round1NoTep: Map<string, Partial<Record<Position, PositionStats>>>;
 }
 
@@ -92,26 +95,28 @@ export interface RawStaticData {
 export function buildStaticData({ adp, round1, trend }: RawStaticData): StaticData {
   const round1Full: StaticData["round1Full"] = new Map();
   const round1NoTep: StaticData["round1NoTep"] = new Map();
-  for (const [slot, size, ltIdx, fmtIdx, tep, posIdx, total, success] of round1.rows) {
+  for (const [slot, size, ltIdx, fmtIdx, stypeIdx, tep, posIdx, total, success] of round1.rows) {
     const leagueType = round1.leagueTypes[ltIdx];
     const leagueFormat = round1.leagueFormats[fmtIdx];
+    const scoringType = round1.scoringTypes[stypeIdx];
     const position = round1.positions[posIdx] as Position;
-    accumulate(round1Full, `${leagueFormat}|${slot}|${leagueType}|${size}|${tep}`, position, total, success);
-    accumulate(round1NoTep, `${leagueFormat}|${slot}|${leagueType}|${size}`, position, total, success);
+    accumulate(round1Full, `${leagueFormat}|${scoringType}|${slot}|${leagueType}|${size}|${tep}`, position, total, success);
+    accumulate(round1NoTep, `${leagueFormat}|${scoringType}|${slot}|${leagueType}|${size}`, position, total, success);
   }
 
   const trendFull: StaticData["trendFull"] = new Map();
   const trendNoTep: StaticData["trendNoTep"] = new Map();
   const trendGeneral: StaticData["trendGeneral"] = new Map();
   for (const row of trend.rows) {
-    const [size, ltIdx, fmtIdx, tep, round, qbB, rbB, wrB, teB, posIdx, total, success] = row;
+    const [size, ltIdx, fmtIdx, stypeIdx, tep, round, qbB, rbB, wrB, teB, posIdx, total, success] = row;
     const leagueType = trend.leagueTypes[ltIdx];
     const leagueFormat = trend.leagueFormats[fmtIdx];
+    const scoringType = trend.scoringTypes[stypeIdx];
     const position = trend.positions[posIdx] as Position;
     const bucketKey = `${trend.buckets[qbB]}|${trend.buckets[rbB]}|${trend.buckets[wrB]}|${trend.buckets[teB]}`;
-    accumulate(trendFull, `${leagueFormat}|${size}|${leagueType}|${tep}|${round}|${bucketKey}`, position, total, success);
-    accumulate(trendNoTep, `${leagueFormat}|${size}|${leagueType}|${round}|${bucketKey}`, position, total, success);
-    accumulate(trendGeneral, `${leagueFormat}|${size}|${leagueType}|${round}`, position, total, success);
+    accumulate(trendFull, `${leagueFormat}|${scoringType}|${size}|${leagueType}|${tep}|${round}|${bucketKey}`, position, total, success);
+    accumulate(trendNoTep, `${leagueFormat}|${scoringType}|${size}|${leagueType}|${round}|${bucketKey}`, position, total, success);
+    accumulate(trendGeneral, `${leagueFormat}|${scoringType}|${size}|${leagueType}|${round}`, position, total, success);
   }
 
   return { adp, trendFull, trendNoTep, trendGeneral, round1Full, round1NoTep };

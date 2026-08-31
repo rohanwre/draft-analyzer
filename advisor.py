@@ -185,20 +185,24 @@ def record_pick(cursor, all_picks, season, player_name, manual_position=None):
 
     return {"status": "not_found", "message": f"No match found for '{player_name}' in ADP data.", "query": player_name}
 
-def _query_round1_stats(cursor, draft_slot, league_size, league_type, te_premium, league_format="redraft"):
+def _query_round1_stats(cursor, draft_slot, league_size, league_type, te_premium, league_format="redraft",
+                         scoring_type="ppr"):
     """Reads the pre-aggregated round1_trend_stats table (built by build_trend_stats.py)
     instead of live-joining rosters/leagues/draft_picks - same data, computed once.
     league_format defaults to 'redraft' (this app's original behavior) but the table also
     holds keeper/dynasty rows (see build_trend_stats.py) - dynasty draft dynamics are
     different enough that pooling them with redraft would blend two different signals, so
     it's a real dimension, not just a filter. No CLI/frontend selector yet for keeper -
-    only 'redraft'/'dynasty' are exercised end-to-end so far."""
+    only 'redraft'/'dynasty' are exercised end-to-end so far.
+    scoring_type ('ppr'/'half_ppr'/'standard') defaults to 'ppr' (this app's original,
+    still by far the largest-volume, behavior) - same reasoning as league_format."""
     query = """
         SELECT position, SUM(total_count), SUM(success_count)
         FROM round1_trend_stats
         WHERE draft_slot = %s AND league_size = %s AND league_type = %s AND league_format = %s
+        AND scoring_type = %s
     """
-    params = [draft_slot, league_size, league_type, league_format]
+    params = [draft_slot, league_size, league_type, league_format, scoring_type]
 
     if te_premium is not None:
         query += " AND te_premium = %s"
@@ -210,19 +214,21 @@ def _query_round1_stats(cursor, draft_slot, league_size, league_type, te_premium
     # (which does plain float arithmetic) doesn't choke on mixed Decimal/float operands.
     return {position: {"total": int(total), "success": int(success)} for position, total, success in cursor.fetchall()}
 
-def _query_trend_stats(cursor, league_size, league_type, te_premium, current_round, buckets, league_format="redraft"):
+def _query_trend_stats(cursor, league_size, league_type, te_premium, current_round, buckets, league_format="redraft",
+                        scoring_type="ppr"):
     """Reads the pre-aggregated draft_trend_stats table using the live draft's own
     round-weighted position buckets (see compute_weighted_buckets) instead of live-joining
     draft_picks for a "last 3 positions" sequence match."""
-    # league_format - see _query_round1_stats for why this is a real dimension, not just a filter
+    # league_format/scoring_type - see _query_round1_stats for why these are real dimensions, not just filters
     qb_b, rb_b, wr_b, te_b = buckets["QB"], buckets["RB"], buckets["WR"], buckets["TE"]
     query = """
         SELECT position, SUM(total_count), SUM(success_count)
         FROM draft_trend_stats
         WHERE league_size = %s AND league_type = %s AND round = %s AND league_format = %s
+        AND scoring_type = %s
         AND qb_bucket = %s AND rb_bucket = %s AND wr_bucket = %s AND te_bucket = %s
     """
-    params = [league_size, league_type, current_round, league_format, qb_b, rb_b, wr_b, te_b]
+    params = [league_size, league_type, current_round, league_format, scoring_type, qb_b, rb_b, wr_b, te_b]
 
     if te_premium is not None:
         query += " AND te_premium = %s"
@@ -233,16 +239,16 @@ def _query_trend_stats(cursor, league_size, league_type, te_premium, current_rou
     return {position: {"total": int(total), "success": int(success)} for position, total, success in cursor.fetchall()}
 
 def find_similar_drafts(cursor, draft_slot, league_size, league_type, te_premium,
-                         current_round, buckets, league_format="redraft"):
+                         current_round, buckets, league_format="redraft", scoring_type="ppr"):
     if current_round == 1:
-        results = _query_round1_stats(cursor, draft_slot, league_size, league_type, te_premium, league_format)
+        results = _query_round1_stats(cursor, draft_slot, league_size, league_type, te_premium, league_format, scoring_type)
         if sum(v["total"] for v in results.values()) < MIN_SAMPLE_SIZE and te_premium is not None:
-            results = _query_round1_stats(cursor, draft_slot, league_size, league_type, None, league_format)
+            results = _query_round1_stats(cursor, draft_slot, league_size, league_type, None, league_format, scoring_type)
         return results
 
-    results = _query_trend_stats(cursor, league_size, league_type, te_premium, current_round, buckets, league_format)
+    results = _query_trend_stats(cursor, league_size, league_type, te_premium, current_round, buckets, league_format, scoring_type)
     if sum(v["total"] for v in results.values()) < MIN_SAMPLE_SIZE and te_premium is not None:
-        results = _query_trend_stats(cursor, league_size, league_type, None, current_round, buckets, league_format)
+        results = _query_trend_stats(cursor, league_size, league_type, None, current_round, buckets, league_format, scoring_type)
     return results
 
 def calculate_recommendation(position_stats):
@@ -265,19 +271,21 @@ def calculate_recommendation(position_stats):
     recommendations.sort(key=lambda x: x["top_two_pct"], reverse=True)
     return recommendations
 
-def get_general_round_trends(cursor, league_size, league_type, current_round, league_format="redraft"):
+def get_general_round_trends(cursor, league_size, league_type, current_round, league_format="redraft",
+                              scoring_type="ppr"):
     """Same draft_trend_stats table as _query_trend_stats, but ignoring the bucket
     columns entirely (aggregating across every profile) and ignoring te_premium -
     matches the original fallback's behavior of a completely unconditioned round trend.
-    league_format - see _query_round1_stats for why this is a real dimension, not just a filter."""
+    league_format/scoring_type - see _query_round1_stats for why these are real dimensions, not just filters."""
     cursor.execute("""
         SELECT position, SUM(success_count) as top_two_count, SUM(total_count) as total_count,
             ROUND(SUM(success_count) * 100.0 / NULLIF(SUM(SUM(success_count)) OVER (), 0), 1) as top_two_pct
         FROM draft_trend_stats
         WHERE league_size = %s AND round = %s AND league_type = %s AND league_format = %s
+        AND scoring_type = %s
         GROUP BY position
         ORDER BY top_two_pct DESC
-    """, (league_size, current_round, league_type, league_format))
+    """, (league_size, current_round, league_type, league_format, scoring_type))
     return cursor.fetchall()
 
 def resolve_adp_league_type(cursor, season, league_type, league_format="redraft"):
@@ -693,12 +701,12 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
 
 def build_recommendation(cursor, draft_slot, league_size, league_type, te_premium,
                           position_sequence, current_round, all_picks, my_picks, season, league_settings, current_pick,
-                          league_format="redraft"):
+                          league_format="redraft", scoring_type="ppr"):
     total_rounds = league_settings.get("total_rounds", 15)
     buckets = compute_weighted_buckets(my_picks, total_rounds)
     similar = find_similar_drafts(
         cursor, draft_slot, league_size, league_type, te_premium,
-        current_round, buckets, league_format
+        current_round, buckets, league_format, scoring_type
     )
     adp_league_type, adp_league_format = resolve_adp_league_type(cursor, season, league_type, league_format)
     rank_lookup = get_adp_rank_lookup(cursor, season, adp_league_type, adp_league_format)
@@ -725,7 +733,7 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
     else:
         trend_source = "general_trends"
         sample_size = None
-        rows = get_general_round_trends(cursor, league_size, league_type, current_round, league_format)
+        rows = get_general_round_trends(cursor, league_size, league_type, current_round, league_format, scoring_type)
         trends = []
         for position, top_two_count, total_count, top_two_pct in rows:
             top_two_pct = float(top_two_pct or 0)
@@ -792,6 +800,7 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
         "league_size": league_size,
         "league_type": league_type,
         "league_format": league_format,
+        "scoring_type": scoring_type,
         "trends": trends,
         "positional_needs": [{"position": pos, "urgency": urg} for pos, urg in needs],
         "top_available_by_position": top_available_by_position,
@@ -802,11 +811,11 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
 
 def show_recommendation(cursor, draft_slot, league_size, league_type, te_premium,
                          position_sequence, current_round, all_picks, my_picks, season, league_settings, current_pick,
-                         league_format="redraft"):
+                         league_format="redraft", scoring_type="ppr"):
     rec = build_recommendation(
         cursor, draft_slot, league_size, league_type, te_premium,
         position_sequence, current_round, all_picks, my_picks, season, league_settings, current_pick,
-        league_format
+        league_format, scoring_type
     )
 
     print(f"\n{'='*50}")
@@ -877,6 +886,8 @@ def run_draft_advisor():
     total_rounds = input_int("How many rounds in your draft? (default 15): ", default=15)
     format_input = input("Draft format? (redraft/dynasty, default redraft): ").strip().lower()
     league_format = format_input if format_input in ("redraft", "dynasty") else "redraft"
+    scoring_input = input("Scoring format? (ppr/half_ppr/standard, default ppr): ").strip().lower()
+    scoring_type = scoring_input if scoring_input in ("ppr", "half_ppr", "standard") else "ppr"
 
     print("\nLeague settings:")
     qb_slots = input_int("  QB starters (default 1): ", default=1)
@@ -900,6 +911,7 @@ def run_draft_advisor():
 
     print(f"\nDetected league type: {league_type}" + (" (TE Premium)" if te_premium else ""))
     print(f"Draft format: {league_format}" + (" (startup draft - historical trends are sustained-success-weighted, not single-season)" if league_format == "dynasty" else ""))
+    print(f"Scoring format: {scoring_type}")
 
     my_picks = []
     all_picks = []
@@ -924,7 +936,7 @@ def run_draft_advisor():
                     cursor, draft_slot, league_size, league_type, te_premium,
                     position_sequence, current_round,
                     all_picks, my_picks, season, league_settings, global_pick,
-                    league_format
+                    league_format, scoring_type
                 )
 
                 player_name, position = get_player_input(cursor, season, all_picks, "Who did you draft?")
