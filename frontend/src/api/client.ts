@@ -42,10 +42,12 @@ export function simulateToUserTurn(draftId: string): Promise<DraftState> {
   return simulateToUserTurnEngine(draftId) as Promise<DraftState>;
 }
 
-export async function getFullAdp(season: number, leagueType: string, leagueFormat: string = "redraft"): Promise<PlayerAdpItem[]> {
+export async function getFullAdp(
+  season: number, leagueType: string, leagueFormat: string = "redraft", scoringType: string = "ppr",
+): Promise<PlayerAdpItem[]> {
   const data = await loadStaticData();
-  const [adpLeagueType, adpLeagueFormat] = resolveAdpLeagueType(data, season, leagueType, leagueFormat);
-  return getFullAdpList(data, season, adpLeagueType, adpLeagueFormat);
+  const [adpLeagueType, adpLeagueFormat, adpScoringType] = resolveAdpLeagueType(data, season, leagueType, leagueFormat, scoringType);
+  return getFullAdpList(data, season, adpLeagueType, adpLeagueFormat, adpScoringType);
 }
 
 export function swapRosterSlots(draftId: string, nameA: string, nameB: string): Promise<DraftState> {

@@ -6,6 +6,7 @@ interface Props {
   season: number;
   leagueType: string;
   leagueFormat: string;
+  scoringType: string;
   takenNames: string[];
   onClose: () => void;
 }
@@ -14,7 +15,7 @@ function nameKey(name: string) {
   return name.trim().toLowerCase();
 }
 
-export default function AdpWatchlist({ season, leagueType, leagueFormat, takenNames, onClose }: Props) {
+export default function AdpWatchlist({ season, leagueType, leagueFormat, scoringType, takenNames, onClose }: Props) {
   const [players, setPlayers] = useState<PlayerAdpItem[]>([]);
   const [query, setQuery] = useState("");
   const [hideDrafted, setHideDrafted] = useState(false);
@@ -25,7 +26,7 @@ export default function AdpWatchlist({ season, leagueType, leagueFormat, takenNa
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getFullAdp(season, leagueType, leagueFormat)
+    getFullAdp(season, leagueType, leagueFormat, scoringType)
       .then((data) => {
         if (!cancelled) setPlayers(data);
       })
@@ -38,7 +39,7 @@ export default function AdpWatchlist({ season, leagueType, leagueFormat, takenNa
     return () => {
       cancelled = true;
     };
-  }, [season, leagueType, leagueFormat]);
+  }, [season, leagueType, leagueFormat, scoringType]);
 
   const takenSet = new Set(takenNames.map(nameKey));
   const trimmedQuery = query.trim().toLowerCase();

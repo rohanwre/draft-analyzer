@@ -15,6 +15,7 @@ export interface AdpRow {
   season: number;
   leagueType: LeagueType;
   leagueFormat: LeagueFormat;
+  scoringType: ScoringType;
   tiebreakAdp: number | null;
 }
 
@@ -83,7 +84,7 @@ async function fetchJson<T>(name: string): Promise<T> {
 export interface RawStaticData {
   adp: Array<{
     name: string; position: Position; adp: number; season: number;
-    leagueType: LeagueType; leagueFormat: LeagueFormat; tiebreakAdp: number | null;
+    leagueType: LeagueType; leagueFormat: LeagueFormat; scoringType: ScoringType; tiebreakAdp: number | null;
   }>;
   round1: Round1Json;
   trend: DraftTrendJson;

@@ -63,7 +63,7 @@ def get_db(source="railway"):
 
 def export_adp(cursor):
     cursor.execute("""
-        SELECT player_name, position, adp, season, league_type, league_format, tiebreak_adp FROM adp
+        SELECT player_name, position, adp, season, league_type, league_format, scoring_type, tiebreak_adp FROM adp
     """)
     rows = [
         {
@@ -73,9 +73,10 @@ def export_adp(cursor):
             "season": season,
             "leagueType": league_type,
             "leagueFormat": league_format,
+            "scoringType": scoring_type,
             "tiebreakAdp": float(tiebreak_adp) if tiebreak_adp is not None else None,
         }
-        for name, position, adp, season, league_type, league_format, tiebreak_adp in cursor.fetchall()
+        for name, position, adp, season, league_type, league_format, scoring_type, tiebreak_adp in cursor.fetchall()
     ]
     write_json("adp.json", rows)
     print(f"  adp: {len(rows)} rows")

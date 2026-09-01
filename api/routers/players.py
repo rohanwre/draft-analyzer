@@ -21,6 +21,6 @@ def full_adp(
     league_type: str = Query("standard"),
     cursor=Depends(get_db_cursor),
 ):
-    # redraft-only here - see routers/drafts.py's simulate endpoint for why
-    adp_league_type, adp_league_format = resolve_adp_league_type(cursor, season, league_type)
-    return get_full_adp_list(cursor, season, adp_league_type, adp_league_format)
+    # redraft/PPR-only here - see routers/drafts.py's simulate endpoint for why
+    adp_league_type, adp_league_format, adp_scoring_type = resolve_adp_league_type(cursor, season, league_type)
+    return get_full_adp_list(cursor, season, adp_league_type, adp_league_format, adp_scoring_type)

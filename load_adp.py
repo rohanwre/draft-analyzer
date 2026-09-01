@@ -136,16 +136,16 @@ def merge_sources(named_sources, tiebreak_source=None):
         }
     return result
 
-def insert_merged(cursor, merged, season, league_type, league_format="redraft"):
+def insert_merged(cursor, merged, season, league_type, league_format="redraft", scoring_type="ppr"):
     # Delete-then-insert instead of upsert-only: a merge-key change (like this fix) can
     # change which player_name ends up stored (e.g. "James Cook" -> "James Cook III"),
     # and ON DUPLICATE KEY UPDATE can't clean up the old spelling's now-stale row since
     # it no longer matches on player_name. load_adp.py is authoritative for these
-    # (season, league_type, league_format) rows, so a full replace each run is safe and
-    # self-healing.
+    # (season, league_type, league_format, scoring_type) rows, so a full replace each
+    # run is safe and self-healing.
     cursor.execute(
-        "DELETE FROM adp WHERE season = %s AND league_type = %s AND league_format = %s",
-        (season, league_type, league_format),
+        "DELETE FROM adp WHERE season = %s AND league_type = %s AND league_format = %s AND scoring_type = %s",
+        (season, league_type, league_format, scoring_type),
     )
 
     inserted = 0
@@ -153,18 +153,18 @@ def insert_merged(cursor, merged, season, league_type, league_format="redraft"):
     for key, data in merged.items():
         try:
             cursor.execute("""
-                INSERT INTO adp (player_name, position, adp, season, league_type, league_format, tiebreak_adp)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO adp (player_name, position, adp, season, league_type, league_format, scoring_type, tiebreak_adp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE adp = %s, tiebreak_adp = %s
             """, (
                 data["name"], data["position"], data["adp"],
-                season, league_type, league_format, data["tiebreak_adp"],
+                season, league_type, league_format, scoring_type, data["tiebreak_adp"],
                 data["adp"], data["tiebreak_adp"],
             ))
             inserted += 1
         except Exception as e:
             skipped += 1
-    print(f"  {league_format} {league_type} season {season}: inserted/updated {inserted}, skipped {skipped}")
+    print(f"  {league_format} {league_type} {scoring_type} season {season}: inserted/updated {inserted}, skipped {skipped}")
     return inserted
 
 ADP_DATA_DIR = "adp_data"
@@ -186,8 +186,24 @@ def load_all():
         ("nfc", load_nfc_adp, os.path.join(ADP_DATA_DIR, "nfc_adp_2026.tsv"), 2026, "standard"),
     ]
 
+    # half-PPR / standard scoring — FantasyPros only so far (their ADP tool only offers
+    # PPR/half-PPR boards; there's no standard-scoring ADP board at all, so
+    # fp_adp_standard_2026.csv comes from their Expert Consensus Rankings instead - same
+    # RK-as-ADP-proxy fallback load_fp_adp already uses for the superflex/dynasty sources
+    # below, since that CSV has no AVG column). Single-source, so no averaging needed.
+    # NFC/MFL's public ADP feed doesn't expose a scoring-format filter, so it stays PPR-only.
+    half_ppr_sources = [
+        ("fp", load_fp_adp, os.path.join(ADP_DATA_DIR, "fp_adp_half_ppr_2026.csv"), 2026, "standard"),
+    ]
+    standard_scoring_sources = [
+        ("fp", load_fp_adp, os.path.join(ADP_DATA_DIR, "fp_adp_standard_2026.csv"), 2026, "standard"),
+    ]
+
     # superflex — average FFPC + FantasyPros + Sleeper superflex rankings equally;
-    # ties in the averaged ADP defer to Sleeper's own ranking (see tiebreak_source below)
+    # ties in the averaged ADP defer to Sleeper's own ranking (see tiebreak_source below).
+    # Not split by scoring_type (stored as the 'ppr' default, unchanged) - these are
+    # already ECR-rank proxies rather than a real ADP metric, so a scoring breakdown here
+    # would be more precision than the underlying data actually supports.
     sflex_sources = [
         ("ffpc",    load_ffpc_adp, os.path.join(ADP_DATA_DIR, "ffpc_adp_sf_2026.csv"),    2026, "qb_premium"),
         ("fp",      load_fp_adp,   os.path.join(ADP_DATA_DIR, "fp_adp_sf_2026.csv"),      2026, "qb_premium"),
@@ -204,7 +220,20 @@ def load_all():
     for season, sources in standard_by_season.items():
         print(f"  Season {season}: merging {len(sources)} source(s)")
         merged = merge_sources(sources)
-        insert_merged(cursor, merged, season, "standard")
+        insert_merged(cursor, merged, season, "standard", scoring_type="ppr")
+        db.commit()
+
+    # half-PPR and standard-scoring ADP - single source each, no merging needed
+    print("Loading half-PPR ADP...")
+    for source_name, loader, filepath, season, league_type in half_ppr_sources:
+        merged = merge_sources({source_name: loader(filepath, season, league_type)})
+        insert_merged(cursor, merged, season, league_type, scoring_type="half_ppr")
+        db.commit()
+
+    print("Loading standard-scoring ADP...")
+    for source_name, loader, filepath, season, league_type in standard_scoring_sources:
+        merged = merge_sources({source_name: loader(filepath, season, league_type)})
+        insert_merged(cursor, merged, season, league_type, scoring_type="standard")
         db.commit()
 
     # process superflex by season

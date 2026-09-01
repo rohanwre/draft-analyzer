@@ -288,30 +288,44 @@ def get_general_round_trends(cursor, league_size, league_type, current_round, le
     """, (league_size, current_round, league_type, league_format, scoring_type))
     return cursor.fetchall()
 
-def resolve_adp_league_type(cursor, season, league_type, league_format="redraft"):
-    """Returns (league_type, league_format) to actually query the adp table with.
-    Falls back within the same league_format first (dynasty ADP so far is
+def resolve_adp_league_type(cursor, season, league_type, league_format="redraft", scoring_type="ppr"):
+    """Returns (league_type, league_format, scoring_type) to actually query the adp table
+    with. Falls back within the same league_format first (dynasty ADP so far is
     superflex-only - a standard-type dynasty session should still see dynasty numbers
     for the closest available type, not silently jump to unrelated redraft data) and
     only crosses into redraft/standard as a last resort if this league_format has no
-    ADP data at all for the season."""
-    def has_rows(lt, fmt):
+    ADP data at all for the season.
+    scoring_type falls back to 'ppr' within whatever (league_type, league_format) is
+    settled on first - only the 'standard' league_type has half_ppr/standard ADP loaded
+    so far (see load_adp.py), so a superflex or dynasty session always lands on 'ppr'
+    here regardless of what scoring format its draft is using; that's a real, disclosed
+    gap (see DraftSetupForm's hint), not a bug."""
+    def has_rows(lt, fmt, stype):
         cursor.execute(
-            "SELECT COUNT(*) FROM adp WHERE season = %s AND league_type = %s AND league_format = %s",
-            (season, lt, fmt),
+            "SELECT COUNT(*) FROM adp WHERE season = %s AND league_type = %s AND league_format = %s AND scoring_type = %s",
+            (season, lt, fmt, stype),
         )
         return cursor.fetchone()[0] > 0
 
-    if has_rows(league_type, league_format):
-        return league_type, league_format
+    def best_scoring(lt, fmt):
+        if has_rows(lt, fmt, scoring_type):
+            return scoring_type
+        if has_rows(lt, fmt, "ppr"):
+            return "ppr"
+        return None
+
+    resolved = best_scoring(league_type, league_format)
+    if resolved:
+        return league_type, league_format, resolved
 
     other_type = "standard" if league_type != "standard" else "qb_premium"
-    if has_rows(other_type, league_format):
-        return other_type, league_format
+    resolved = best_scoring(other_type, league_format)
+    if resolved:
+        return other_type, league_format, resolved
 
-    return "standard", "redraft"
+    return "standard", "redraft", "ppr"
 
-def get_scarcity(cursor, all_picks, current_pick_number, season, league_settings, adp_league_type="standard", adp_league_format="redraft"):
+def get_scarcity(cursor, all_picks, current_pick_number, season, league_settings, adp_league_type="standard", adp_league_format="redraft", adp_scoring_type="ppr"):
     position_counts = {}
     for position, _ in all_picks:
         if position in ["QB", "RB", "WR", "TE"]:
@@ -337,7 +351,8 @@ def get_scarcity(cursor, all_picks, current_pick_number, season, league_settings
         cursor.execute("""
             SELECT COUNT(*) FROM adp
             WHERE season = %s AND position = %s AND adp <= %s AND league_type = %s AND league_format = %s
-        """, (season, position, current_pick_number, adp_league_type, adp_league_format))
+            AND scoring_type = %s
+        """, (season, position, current_pick_number, adp_league_type, adp_league_format, adp_scoring_type))
         expected = cursor.fetchone()[0]
 
         if expected == 0:
@@ -360,23 +375,24 @@ def get_scarcity(cursor, all_picks, current_pick_number, season, league_settings
     alerts.sort(key=lambda x: x["ratio"] / x["threshold"], reverse=True)
     return alerts
 
-def get_adp_rank_lookup(cursor, season, adp_league_type="standard", adp_league_format="redraft"):
+def get_adp_rank_lookup(cursor, season, adp_league_type="standard", adp_league_format="redraft", adp_scoring_type="ppr"):
     """Maps normalized player name -> overall ADP rank (1-based position across all
     positions, sorted adp then tiebreak_adp) for a season/league_type/league_format. This
     is what the UI shows instead of the raw decimal ADP — an integer rank is what people
     expect from a mock draft board, and ties in the averaged ADP are broken deterministically
     by Sleeper's own ranking rather than left to arbitrary SQL row order."""
-    pool = fetch_adp_pool(cursor, season, adp_league_type, adp_league_format)
+    pool = fetch_adp_pool(cursor, season, adp_league_type, adp_league_format, adp_scoring_type)
     return {normalize_name(name): rank for rank, (name, position, adp) in enumerate(pool, start=1)}
 
-def get_available_players(cursor, all_picks, position, season, rank_lookup, adp_league_type="standard", limit=5, adp_league_format="redraft"):
+def get_available_players(cursor, all_picks, position, season, rank_lookup, adp_league_type="standard", limit=5, adp_league_format="redraft", adp_scoring_type="ppr"):
     taken_normalized = {normalize_name(name) for _, name in all_picks if name}
 
     cursor.execute("""
         SELECT player_name, adp FROM adp
         WHERE season = %s AND position = %s AND league_type = %s AND league_format = %s
+        AND scoring_type = %s
         ORDER BY adp, tiebreak_adp IS NULL, tiebreak_adp
-    """, (season, position, adp_league_type, adp_league_format))
+    """, (season, position, adp_league_type, adp_league_format, adp_scoring_type))
 
     available = [
         (name, adp, rank_lookup.get(normalize_name(name)))
@@ -385,7 +401,7 @@ def get_available_players(cursor, all_picks, position, season, rank_lookup, adp_
     ]
     return available[:limit]
 
-def fetch_adp_pool(cursor, season, adp_league_type="standard", adp_league_format="redraft"):
+def fetch_adp_pool(cursor, season, adp_league_type="standard", adp_league_format="redraft", adp_scoring_type="ppr"):
     """Full ADP-sorted candidate pool for a season/league_type/league_format, fetched
     once. Passing this into simulate_pick() for every pick of a simulated draft (instead
     of having simulate_pick re-query the DB each time) is what makes simulate-to-user-turn
@@ -393,9 +409,9 @@ def fetch_adp_pool(cursor, season, adp_league_type="standard", adp_league_format
     cursor.execute("""
         SELECT player_name, position, adp FROM adp
         WHERE season = %s AND position IN ('QB', 'RB', 'WR', 'TE') AND league_type = %s AND league_format = %s
-        AND adp > 0
+        AND scoring_type = %s AND adp > 0
         ORDER BY adp, tiebreak_adp IS NULL, tiebreak_adp
-    """, (season, adp_league_type, adp_league_format))
+    """, (season, adp_league_type, adp_league_format, adp_scoring_type))
     return cursor.fetchall()
 
 def get_team_position_counts(all_picks, league_size, target_slot):
@@ -462,10 +478,10 @@ def simulate_pick(pool, all_picks, league_size, league_settings, current_pick_sl
     name, position, adp = random.choices(candidates, weights=weights, k=1)[0]
     return {"name": name, "position": position, "adp": adp}
 
-def get_full_adp_list(cursor, season, adp_league_type="standard", adp_league_format="redraft"):
+def get_full_adp_list(cursor, season, adp_league_type="standard", adp_league_format="redraft", adp_scoring_type="ppr"):
     """Full ADP board for the watchlist sidebar — every drafted-eligible player at this
-    season/league_type/league_format, sorted by ADP (ties broken by Sleeper ranking), no limit."""
-    pool = fetch_adp_pool(cursor, season, adp_league_type, adp_league_format)
+    season/league_type/league_format/scoring_type, sorted by ADP (ties broken by Sleeper ranking), no limit."""
+    pool = fetch_adp_pool(cursor, season, adp_league_type, adp_league_format, adp_scoring_type)
     return [
         {"name": name, "position": position, "adp": adp, "rank": rank}
         for rank, (name, position, adp) in enumerate(pool, start=1)
@@ -616,7 +632,7 @@ def get_positional_cliff_bonus(players_by_position, current_pick, next_turn_pick
 
 def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_round, current_pick,
                         season, position_pct_lookup, rank_lookup, draft_slot, adp_league_type="standard", limit=10,
-                        adp_league_format="redraft"):
+                        adp_league_format="redraft", adp_scoring_type="ppr"):
     """Single blended score per available player, mixing five signals:
       - trend_pct * TREND_WEIGHT: historical top-2-seed rate for this position at this
         point in similar drafts, damped to 0.6x. Full-strength trend_pct swings ~30 points
@@ -652,7 +668,7 @@ def get_ranked_players(cursor, all_picks, my_picks, league_settings, current_rou
         position: get_available_players(
             cursor, all_picks, position, season, rank_lookup,
             adp_league_type=adp_league_type, limit=RANKED_PLAYERS_POOL_PER_POSITION,
-            adp_league_format=adp_league_format,
+            adp_league_format=adp_league_format, adp_scoring_type=adp_scoring_type,
         )
         for position in ["QB", "RB", "WR", "TE"]
     }
@@ -708,8 +724,8 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
         cursor, draft_slot, league_size, league_type, te_premium,
         current_round, buckets, league_format, scoring_type
     )
-    adp_league_type, adp_league_format = resolve_adp_league_type(cursor, season, league_type, league_format)
-    rank_lookup = get_adp_rank_lookup(cursor, season, adp_league_type, adp_league_format)
+    adp_league_type, adp_league_format, adp_scoring_type = resolve_adp_league_type(cursor, season, league_type, league_format, scoring_type)
+    rank_lookup = get_adp_rank_lookup(cursor, season, adp_league_type, adp_league_format, adp_scoring_type)
 
     position_pct_lookup = {}
     position_order = []
@@ -759,7 +775,7 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
         players = get_available_players(
             cursor, all_picks, position, season, rank_lookup,
             adp_league_type=adp_league_type, limit=TOP_AVAILABLE_LIMIT,
-            adp_league_format=adp_league_format,
+            adp_league_format=adp_league_format, adp_scoring_type=adp_scoring_type,
         )
         top_available_by_position.append({
             "position": position,
@@ -770,7 +786,7 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
 
     value_picks = []
     for position in ["RB", "WR", "TE", "QB"]:
-        candidates = get_available_players(cursor, all_picks, position, season, rank_lookup, adp_league_type=adp_league_type, limit=50, adp_league_format=adp_league_format)
+        candidates = get_available_players(cursor, all_picks, position, season, rank_lookup, adp_league_type=adp_league_type, limit=50, adp_league_format=adp_league_format, adp_scoring_type=adp_scoring_type)
         shown = 0
         for name, adp, rank in candidates:
             # Same rank-not-raw-adp fix as get_ranked_players' value_bonus - keep the
@@ -783,12 +799,12 @@ def build_recommendation(cursor, draft_slot, league_size, league_type, te_premiu
             if shown >= 2:
                 break
 
-    scarcity_alerts = get_scarcity(cursor, all_picks, current_pick, season, league_settings, adp_league_type=adp_league_type, adp_league_format=adp_league_format)
+    scarcity_alerts = get_scarcity(cursor, all_picks, current_pick, season, league_settings, adp_league_type=adp_league_type, adp_league_format=adp_league_format, adp_scoring_type=adp_scoring_type)
 
     ranked_players = get_ranked_players(
         cursor, all_picks, my_picks, league_settings, current_round, current_pick,
         season, position_pct_lookup, rank_lookup, draft_slot, adp_league_type=adp_league_type,
-        adp_league_format=adp_league_format,
+        adp_league_format=adp_league_format, adp_scoring_type=adp_scoring_type,
     )
 
     return {
