@@ -1,0 +1,10 @@
+# Minimal deps for the Lambda deployment (api/lambda_handler.py) - deliberately not
+# the full requirements.txt. Excludes uvicorn (Lambda doesn't run a server - API
+# Gateway + Mangum replace it) and snowflake-connector-python (the API layer never
+# touches Snowflake, only load_snowflake.py does). Keeping this separate keeps the
+# deployment zip smaller and avoids packaging code paths the Lambda never executes.
+fastapi
+pydantic
+mysql-connector-python
+python-dotenv
+mangum
