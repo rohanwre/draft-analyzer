@@ -10,5 +10,19 @@ frontend/.env.local
 .vercel
 *_log*.txt
 
+# Lambda packaging output - rebuilt by package_lambda.py, not source
+lambda_build/
+lambda_deployment.zip
+
+# Terraform - state/vars can contain secrets or machine-specific data
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/terraform.tfvars
+terraform/.terraform.lock.hcl
+
+# Parquet export of the raw tables for the Spark trend-stats step - regenerated each run
+databricks_export/
+
 # Sleeper API downloads for build_trade_values.py - re-fetched with --refresh
 trade_cache/

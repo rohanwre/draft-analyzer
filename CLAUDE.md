@@ -124,6 +124,8 @@ average-team value even in league mode; the verdict uses roster-aware values.
 - **NEVER `git push`, to any branch or remote, for any reason.** The user pushes themselves.
   Local commits are fine. `main` auto-deploys to Vercel/GitHub Pages/Railway, so a push is
   a production deploy. Also don't run deploy commands (`vercel --prod`, etc.).
+- **No `Co-Authored-By: Claude` (or any Claude/AI attribution) in commit messages or PRs.**
+  Commits must show the user as the sole author.
 - Commit only the files you touched. The working tree often has unrelated in-progress
   work (Airflow/Terraform/Databricks/Snowflake files).
 - Never TRUNCATE or bulk-write the Railway prod DB from an agent session (classifier-blocked).

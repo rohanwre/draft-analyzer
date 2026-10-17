@@ -27,7 +27,10 @@ This is two separate things sharing one recommendation engine:
 
 - **Data pipeline** (root of this repo, Python): crawls Sleeper leagues, computes historical draft outcomes, and aggregates them into compact lookup tables (`draft_trend_stats`, `round1_trend_stats`, `adp`) in MySQL. This part genuinely needs a real database — it's replaying millions of raw draft picks.
 - **Frontend** (`frontend/`, React + TypeScript): a full port of the recommendation engine (`advisor.py`) to TypeScript, running entirely client-side against a static JSON snapshot of those lookup tables (`frontend/public/data/`, produced by `scripts/export_static_data.py`). No backend calls at runtime — this is what's deployed to GitHub Pages and Vercel above.
-- **API** (`api/`, FastAPI): a REST wrapper around the same Python engine, deployable separately (e.g. to Railway) if you want a real server-backed instance instead of the static build. Not required for the live demo.
+- **API** (`api/`, FastAPI): a REST wrapper around the same Python engine, deployable separately (e.g. to Railway, or to AWS Lambda via `api/lambda_handler.py` + `terraform/`) if you want a real server-backed instance instead of the static build. Not required for the live demo.
+- **Orchestration** (`dags/`, Airflow): two DAGs automate the operational steps documented in `OPERATIONS.md` — a manually-triggered multi-day crawl DAG, and a downstream compute/aggregate/export DAG that runs automatically when the crawl lands new data (Airflow Datasets), with failure, retry and slow-stage alerts on every task. Runs via `docker-compose.airflow.yml` (Airflow doesn't support Windows natively).
+- **Warehouse mirror** (`load_snowflake.py`): ships the same tiny production summary tables to Snowflake, alongside MySQL, for ad hoc analytical SQL. See `OPERATIONS.md` for setup — code-complete but not yet run against a live account.
+- **Spark on Databricks** (`databricks/`): a PySpark port of the `build_trend_stats.py` replay — the one step that streams ~16M raw draft picks through a single-threaded Python loop — rewritten as window functions so it parallelizes across rosters, writing Delta tables with the same schema as the MySQL summary tables. Verified for row-for-row parity against the MySQL output; see `OPERATIONS.md`.
 
 ## Setup (data pipeline + CLI)
 
@@ -181,13 +184,25 @@ draft-analyzer/
 ├── load_adp.py                   # loads FantasyPros ADP CSVs
 ├── fetch_adp.py                  # pulls current season ADP from Sleeper
 ├── config.py                     # database config via dotenv
+├── snowflake_config.py           # Snowflake config via dotenv
+├── load_snowflake.py             # ships production summary tables to Snowflake
+├── databricks/                   # PySpark port of build_trend_stats.py + raw-table Parquet exporter + parity test
+├── requirements-databricks.txt   # pyarrow (export) / pyspark (local parity test)
 ├── fp_adp_2023.csv … fp_adp_2026.csv
 ├── api/                          # FastAPI wrapper around advisor.py (optional, e.g. Railway)
+│   └── lambda_handler.py         # Mangum adapter - same app, deployable to AWS Lambda
+├── terraform/                    # provisions the Lambda + API Gateway deployment of api/
+├── package_lambda.py             # builds the Lambda deployment zip
+├── requirements-lambda.txt       # minimal deps for the Lambda package (no uvicorn/snowflake)
+├── dags/                         # Airflow DAGs (crawl + downstream pipeline) — see OPERATIONS.md
 ├── scripts/
 │   └── export_static_data.py     # exports DB tables to frontend/public/data/*.json
 ├── frontend/                     # React + TypeScript app (Vite)
 │   ├── src/engine/               # TypeScript port of advisor.py — runs client-side
 │   └── public/data/              # static data snapshot the engine reads
+├── Dockerfile.airflow            # Airflow image w/ this project's deps installed
+├── docker-compose.airflow.yml    # local Airflow (LocalExecutor) — see OPERATIONS.md
+├── OPERATIONS.md                 # pipeline stage reference, orchestration, troubleshooting
 └── .env                          # not committed
 ```
 
