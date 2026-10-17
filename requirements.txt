@@ -4,3 +4,4 @@ requests
 fastapi
 uvicorn[standard]
 pydantic
+snowflake-connector-python
