@@ -1,5 +1,5 @@
-# Copy to terraform.tfvars (gitignored) and fill in real values - same MySQL target
-# as the RAILWAY_DB_* vars in .env, since this Lambda serves the same data.
+# Copy to terraform.tfvars (gitignored) and fill in real values. db_host must be a
+# MySQL host reachable from Lambda over the public internet.
 aws_region      = "us-east-1"
 db_host         = ""
 db_port         = "3306"

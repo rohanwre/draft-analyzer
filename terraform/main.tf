@@ -8,9 +8,8 @@
 #   terraform apply
 #
 # The MySQL target (var.db_host etc.) is expected to be a publicly-reachable proxy
-# (e.g. Railway's) - Lambda has no VPC config here, so a VPC-internal-only DB target
-# won't be reachable. That matches this project's actual production DB (Railway
-# exposes a public proxy host/port), so no VPC/NAT gateway cost is needed.
+# - Lambda has no VPC config here, so a VPC-internal-only DB target
+# won't be reachable. Using a public host avoids VPC/NAT gateway cost.
 
 terraform {
   required_providers {

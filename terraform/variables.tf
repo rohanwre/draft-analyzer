@@ -5,7 +5,7 @@ variable "aws_region" {
 
 variable "db_host" {
   type        = string
-  description = "MySQL host reachable from Lambda (a public proxy, e.g. Railway's - no VPC config here)"
+  description = "MySQL host reachable from Lambda (must be publicly reachable - no VPC config here)"
 }
 
 variable "db_port" {

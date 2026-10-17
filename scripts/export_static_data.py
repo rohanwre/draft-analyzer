@@ -36,28 +36,16 @@ BUCKET_IDX = {v: i for i, v in enumerate(BUCKETS)}
 POSITION_IDX = {v: i for i, v in enumerate(POSITIONS)}
 
 
-def get_db(source="railway"):
-    """source='railway' (default) exports from the production Railway MySQL - the
-    normal case, since that's meant to be the canonical copy these tables get pushed to
-    (see OPERATIONS.md / draft-advisor-deployment-status memory). source='local' exports
-    straight from the local dev DB (config.py's DB_* creds) instead - useful when Railway
-    is unreachable, since the local raw tables are the actual source of truth and
-    build_trend_stats.py/load_adp.py always run against them first anyway; reconcile
-    Railway with a mysqldump push once it's reachable again so future runs stay canonical."""
-    if source == "local":
-        return mysql.connector.connect(
-            host=os.getenv("DB_HOST"),
-            port=int(os.getenv("DB_PORT", "3306")),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            database=os.getenv("DB_NAME"),
-        )
+def get_db():
+    """Exports from the local MySQL (config.py's DB_* creds). That's the source of truth:
+    build_trend_stats.py and load_adp.py write these tables there, and the site is fully
+    static (GitHub Pages), so there's no hosted production DB to read from."""
     return mysql.connector.connect(
-        host=os.getenv("RAILWAY_DB_HOST"),
-        port=int(os.getenv("RAILWAY_DB_PORT")),
-        user=os.getenv("RAILWAY_DB_USER"),
-        password=os.getenv("RAILWAY_DB_PASSWORD"),
-        database=os.getenv("RAILWAY_DB_NAME"),
+        host=os.getenv("DB_HOST"),
+        port=int(os.getenv("DB_PORT", "3306")),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME"),
     )
 
 
@@ -146,13 +134,11 @@ def write_json(filename, data):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--source", choices=["railway", "local"], default="railway")
-    args = parser.parse_args()
+    argparse.ArgumentParser(description=__doc__).parse_args()
 
-    db = get_db(args.source)
+    db = get_db()
     cursor = db.cursor()
-    print(f"Exporting static data for frontend (source: {args.source})...")
+    print("Exporting static data for frontend...")
     export_adp(cursor)
     export_round1_trend_stats(cursor)
     export_draft_trend_stats(cursor)

@@ -7,7 +7,7 @@ import "./App.css";
 
 type Route = "draft" | "trade";
 
-// Hash routing so the static GitHub Pages / Vercel builds need no rewrite rules.
+// Hash routing so the static GitHub Pages build needs no rewrite rules.
 function currentRoute(): Route {
   return window.location.hash.startsWith("#/trade") ? "trade" : "draft";
 }

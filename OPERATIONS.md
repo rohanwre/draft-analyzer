@@ -18,7 +18,7 @@ architecture, see `README.md`.
 | 8 | `compute_position_weight_scores.py` | Exploratory per-position weight scoring. Not consumed by `build_trend_stats.py` — safe to skip if you're in a hurry. | Yes |
 | 9 | `compute_sustained_success.py` | Dynasty-only: success rate across a lineage's seasons so far. | Yes |
 | 10 | `build_trend_stats.py` | Full replay of every roster's picks into the two production summary tables. Cheap (~30MB output) — always does a full rebuild rather than an incremental one. | Yes (idempotent full rebuild) |
-| 11 | `scripts/export_static_data.py` | Exports the production tables to static JSON for the client-side frontend. Reads from the **Railway** production DB (`RAILWAY_DB_*` env vars), not the local dev DB. | Yes |
+| 11 | `scripts/export_static_data.py` | Exports the production tables from the local MySQL to static JSON for the client-side frontend (deployed to GitHub Pages). | Yes |
 | 12 | `load_snowflake.py` | Loads the same production summary tables into Snowflake. Truncate + full reload each run. | Yes |
 
 Stages 1–4 are **ingestion** (Sleeper API, ADP CSVs, projections API → local MySQL);
@@ -58,7 +58,7 @@ Airflow doesn't run natively on Windows (WSL2 or a container are the supported
 paths) — this project uses Docker:
 
 ```
-cp .env.example .env   # fill in DB_HOST/USER/PASSWORD/NAME, RAILWAY_DB_*, SNOWFLAKE_*
+cp .env.example .env   # fill in DB_HOST/USER/PASSWORD/NAME, SNOWFLAKE_*
 docker compose -f docker-compose.airflow.yml up airflow-init
 docker compose -f docker-compose.airflow.yml up
 ```
@@ -144,7 +144,7 @@ finding out why the crawler stored duplicate `pick_no`s.
 
 `api/lambda_handler.py` wraps the existing FastAPI app (`api/main.py`) with
 [Mangum](https://mangum.io) so it can run behind API Gateway — no route or logic
-changes, same app as the Railway deployment, just a second deployment target.
+changes, just a deployment target for the same app.
 
 ```
 python package_lambda.py                    # builds lambda_deployment.zip
@@ -155,8 +155,7 @@ terraform apply                              # prints the API's invoke URL
 ```
 
 `db_host` must be reachable from Lambda over the public internet — this config has no
-VPC attached, so it targets Railway's public MySQL proxy the same way the local `.env`
-does, not a VPC-internal database. Re-run `package_lambda.py` then `terraform apply`
+VPC attached, so it needs a publicly reachable MySQL host, not a VPC-internal database. Re-run `package_lambda.py` then `terraform apply`
 after any change to `api/`, `advisor.py`, or `config.py` to redeploy.
 
 **Status as of this writing: code and Terraform config complete, never applied** — no
@@ -170,8 +169,8 @@ Snowflake section above.
 - **Crawler restarted mid-run** (e.g. computer restart) → just rerun `crawler.py`; DB
   writes are idempotent regardless of where it left off, though it re-scans all known
   owners from scratch (not instant, but not destructive).
-- **`export_static_data.py` fails or exports stale data** → confirm `RAILWAY_DB_*` env
-  vars point at the current production DB, and that stage 10 actually ran since the
+- **`export_static_data.py` fails or exports stale data** → confirm the local MySQL is
+  running and `DB_*` in `.env` point at it, and that stage 10 actually ran since the
   last crawl.
 - **Frontend shows old numbers after a pipeline rebuild** → `export_static_data.py`
   (stage 11) needs to be rerun and the frontend redeployed; the recompute alone

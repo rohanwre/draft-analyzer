@@ -7,8 +7,7 @@ from api.routers import drafts, players
 
 app = FastAPI(title="Fantasy Draft Advisor API")
 
-# Comma-separated list of allowed frontend origins, e.g.
-# "http://localhost:5173,https://your-app.vercel.app". Falls back to local dev only.
+# Comma-separated list of allowed frontend origins. Falls back to local dev only.
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 
 app.add_middleware(

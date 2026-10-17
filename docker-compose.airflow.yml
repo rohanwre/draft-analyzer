@@ -52,14 +52,6 @@ services:
       DB_USER: ${AIRFLOW_DB_USER:-${DB_USER}}
       DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-${DB_PASSWORD}}
       DB_NAME: ${DB_NAME}
-      # export_static_data.py (called by draft_analyzer_downstream_pipeline) reads
-      # RAILWAY_DB_* specifically, not DB_* - it writes the production JSON snapshot
-      # from the production DB, separate from the local raw-data connection above.
-      RAILWAY_DB_HOST: ${RAILWAY_DB_HOST}
-      RAILWAY_DB_PORT: ${RAILWAY_DB_PORT}
-      RAILWAY_DB_USER: ${RAILWAY_DB_USER}
-      RAILWAY_DB_PASSWORD: ${RAILWAY_DB_PASSWORD}
-      RAILWAY_DB_NAME: ${RAILWAY_DB_NAME}
       SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT}
       SNOWFLAKE_USER: ${SNOWFLAKE_USER}
       SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD}
