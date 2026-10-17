@@ -584,3 +584,38 @@ button:disabled {
 .roster-summary {
   margin-top: 24px;
 }
+
+/* Top nav shared by the draft room and trade desk */
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 28px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  text-align: left;
+}
+
+.app-nav-brand {
+  font-weight: 700;
+  color: var(--text-h);
+  margin-right: auto;
+  letter-spacing: 0.02em;
+}
+
+.app-nav a {
+  color: var(--text);
+  text-decoration: none;
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+}
+
+.app-nav a.on {
+  color: var(--text-h);
+  border-bottom-color: currentColor;
+}
+
+@media (max-width: 760px) {
+  .app-nav { padding: 10px 16px; gap: 14px; }
+}

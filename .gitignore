@@ -9,3 +9,6 @@ frontend/.env.local
 .claude/
 .vercel
 *_log*.txt
+
+# Sleeper API downloads for build_trade_values.py - re-fetched with --refresh
+trade_cache/
