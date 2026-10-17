@@ -21,9 +21,13 @@ Four pieces, each written to the JSON:
                  their projected points in each season after being drafted. Local DB
                  (draft_picks from dynasty leagues with season_index >= 2).
 
-Usage: python build_trade_values.py [--refresh]   (--refresh re-downloads Sleeper data)
-Needs the local MySQL (raw tables) running. Re-run weekly in-season so ROS projections
-stay current, then rebuild/redeploy the frontend.
+Usage: python build_trade_values.py [--refresh] [--live-only]
+  --refresh    re-download Sleeper data instead of using trade_cache/
+  --live-only  refresh only the Sleeper-driven parts (players/projections/week) and keep
+               calibration, ageCurves, picks and preseason ADP from the existing JSON. No
+               MySQL needed, so this is what the scheduled GitHub Action
+               (.github/workflows/refresh-trade-values.yml) runs every other day.
+The full build needs the local MySQL (raw tables) running; re-run it after a new crawl.
 """
 import argparse
 import json
@@ -35,7 +39,7 @@ from pathlib import Path
 
 import requests
 
-from advisor import get_db, normalize_name
+from advisor import normalize_name
 
 ROOT = Path(__file__).parent
 CACHE = ROOT / "trade_cache"
@@ -426,6 +430,8 @@ def build_pick_samples(cursor, players, totals, curves, season):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--refresh", action="store_true", help="re-download Sleeper data")
+    parser.add_argument("--live-only", action="store_true",
+                        help="refresh Sleeper data only; reuse the historical parts of the existing JSON")
     args = parser.parse_args()
     CACHE.mkdir(exist_ok=True)
 
@@ -434,12 +440,26 @@ def main():
     print(f"Season {season}, week {current_week}")
     players = sleeper_get("https://api.sleeper.app/v1/players/nfl", "players.json", args.refresh)
 
-    db = get_db()
-    cursor = db.cursor()
-
     print("Current-season projections...")
     weekly = fetch_current_season(season, args.refresh)
     games = fetch_stats_to_date(season, current_week, args.refresh)
+
+    if args.live_only:
+        previous = json.loads(OUT.read_text(encoding="utf-8"))
+        if previous["season"] != season:
+            raise SystemExit(f"Existing JSON is for {previous['season']}, Sleeper says {season}: "
+                             "run the full build locally first.")
+        market = market_from_previous(previous)
+        player_rows = build_players(players, weekly, games, market, season, current_week)
+        print(f"  {len(player_rows)} players (historical parts kept from {previous['generated']})")
+        payload = {**{k: v for k, v in previous.items() if k != "generated"}, "week": current_week,
+                   "rosWeeks": list(range(current_week, LAST_WEEK + 1)), "players": player_rows}
+        write_payload(payload, previous)
+        return
+
+    from advisor import get_db
+    db = get_db()
+    cursor = db.cursor()
     market = load_market(cursor, season)
     player_rows = build_players(players, weekly, games, market, season, current_week)
     print(f"  {len(player_rows)} players")
@@ -455,7 +475,6 @@ def main():
     picks = build_pick_samples(cursor, players, totals, curves, season)
 
     payload = {
-        "generated": date.today().isoformat(),
         "season": season,
         "week": current_week,
         "rosWeeks": list(range(current_week, LAST_WEEK + 1)),
@@ -465,6 +484,28 @@ def main():
         "ageCurves": curves,
         "picks": picks,
     }
+    previous = json.loads(OUT.read_text(encoding="utf-8")) if OUT.exists() else None
+    write_payload(payload, previous)
+
+
+def market_from_previous(previous):
+    """Rebuild the preseason ADP lookup from the player rows of an earlier build."""
+    market = defaultdict(dict)
+    for row in previous["players"]:
+        for k, v in (row.get("m") or {}).items():
+            market[k][normalize_name(row["n"])] = v
+    return market
+
+
+def write_payload(payload, previous):
+    """Write the JSON, but leave the file alone when nothing but the date would change,
+    so the scheduled refresh doesn't commit (and redeploy) a no-op."""
+    if previous is not None:
+        unchanged = {k: v for k, v in previous.items() if k != "generated"}
+        if unchanged == payload:
+            print("No changes since the last build; left the file as is.")
+            return
+    payload = {"generated": date.today().isoformat(), **payload}
     OUT.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     print(f"Wrote {OUT} ({OUT.stat().st_size / 1024:.0f} KB)")
 
