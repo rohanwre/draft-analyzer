@@ -1,0 +1,7 @@
+# Deps for the databricks/ folder - deliberately separate from requirements.txt.
+# export_raw_parquet.py only needs pyarrow (plus mysql-connector-python/python-dotenv
+# from requirements.txt). pyspark is only needed to run the parity test locally (it also
+# needs a JDK on the machine); on Databricks itself Spark is provided by the runtime, so
+# build_trend_stats_spark.py needs nothing installed there.
+pyarrow
+pyspark
