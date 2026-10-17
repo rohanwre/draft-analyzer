@@ -70,7 +70,7 @@ export default function RosterSummary({
                   const pick = slots[slotKey][i];
                   return (
                     <li key={i} className={pick ? "roster-slot-filled" : "roster-slot-empty"}>
-                      <span>{pick ? `${pick.name} (${pick.position})` : "—"}</span>
+                      <span className="roster-pick">{pick ? <><span className={`pos pos-${pick.position}`}>{pick.position}</span>{pick.name}</> : "—"}</span>
                       {pick && (
                         <select
                           className="slot-swap-select"
@@ -100,8 +100,10 @@ export default function RosterSummary({
       ) : (
         <ul className="roster-list">
           {myPicks.map((p) => (
-            <li key={`${p.round}-${p.name}`}>
-              Round {p.round}: {p.name} ({p.position})
+            <li key={`${p.round}-${p.name}`} className="roster-pick">
+              <span className="num muted">R{p.round}</span>
+              <span className={`pos pos-${p.position}`}>{p.position}</span>
+              {p.name}
             </li>
           ))}
         </ul>

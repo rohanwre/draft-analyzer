@@ -60,7 +60,7 @@ export default function DraftBoard({ state, onStateChange }: Props) {
   const toolbar = (
     <div className="board-toolbar">
       <button type="button" onClick={handleUndo} disabled={busy || state.all_picks.length === 0}>
-        Undo last pick
+        Undo pick
       </button>
       {!state.draft_complete && (
         <button type="button" onClick={handleSimulate} disabled={busy}>
@@ -68,10 +68,10 @@ export default function DraftBoard({ state, onStateChange }: Props) {
         </button>
       )}
       <button type="button" onClick={() => setShowFullBoard(true)}>
-        Show full draft board
+        Full board
       </button>
       <button type="button" onClick={() => setShowAdpBoard(true)}>
-        Show ADP board
+        ADP board
       </button>
     </div>
   );
@@ -90,7 +90,12 @@ export default function DraftBoard({ state, onStateChange }: Props) {
   if (state.draft_complete) {
     return (
       <div className="draft-board">
-        <h2>Draft complete!</h2>
+        <header className="draft-header">
+          <div>
+            <p className="kicker">{state.league_size} teams · {state.total_rounds} rounds</p>
+            <h1 className="headline">Draft complete.</h1>
+          </div>
+        </header>
         {toolbar}
         {error && <p className="error-text">{error}</p>}
         <RosterSummary
@@ -119,45 +124,65 @@ export default function DraftBoard({ state, onStateChange }: Props) {
 
   const label = state.is_user_turn
     ? "Who did you draft?"
-    : `Pick ${state.current_global_pick} — Slot ${state.current_pick_slot} (opponent):`;
+    : `Pick ${state.current_global_pick}, slot ${state.current_pick_slot} (opponent)`;
+
+  const scoringLabel = state.scoring_type === "half_ppr" ? "Half PPR" : state.scoring_type === "standard" ? "Standard" : "PPR";
 
   return (
     <div className="draft-board">
-      <div className="draft-header">
-        <h2>
-          Round {state.current_round} — Pick {state.current_global_pick}
-        </h2>
-        <p className={state.is_user_turn ? "your-turn" : "waiting-turn"}>
-          {state.is_user_turn ? "It's your turn to pick" : `Waiting on slot ${state.current_pick_slot}`}
+      <header className="draft-header">
+        <div>
+          <p className="kicker">
+            {state.league_size} teams · {scoringLabel} · {state.league_format === "dynasty" ? "Dynasty startup" : "Redraft"} · slot {state.draft_slot}
+          </p>
+          <h1 className="draft-clock">
+            <span className="cap">Round</span><span className="num">{state.current_round}</span>
+            <span className="cap">Pick</span><span className="num">{state.current_global_pick}</span>
+          </h1>
+        </div>
+        <p className={state.is_user_turn ? "turn-flag your-turn" : "turn-flag waiting-turn"}>
+          {state.is_user_turn ? "You're on the clock" : `Waiting on slot ${state.current_pick_slot}`}
         </p>
-      </div>
+      </header>
 
       {toolbar}
       {error && <p className="error-text">{error}</p>}
 
-      {state.is_user_turn && state.recommendation && (
-        <RecommendationPanel
-          recommendation={state.recommendation}
-          onSelectPlayer={handleSelectPlayer}
-          disabled={busy}
-        />
-      )}
-
-      <PickEntry
-        draftId={state.draft_id}
-        season={state.season}
-        label={label}
-        onPickCommitted={onStateChange}
-      />
-
-      <RosterSummary
-        draftId={state.draft_id}
-        myPicks={state.my_picks}
-        leagueSettings={state.league_settings}
-        totalRounds={state.total_rounds}
-        slotSwaps={state.slot_swaps}
-        onStateChange={onStateChange}
-      />
+      <div className="draft-grid">
+        <div className="draft-main">
+          {state.is_user_turn && state.recommendation ? (
+            <RecommendationPanel
+              recommendation={state.recommendation}
+              onSelectPlayer={handleSelectPlayer}
+              disabled={busy}
+            />
+          ) : (
+            <div className="panel-section waiting-panel">
+              <h3>Opponents are picking</h3>
+              <p className="section-hint">
+                Enter each pick as it happens, or use "Simulate opponent picks" to jump to your next turn.
+                Recommendations appear when you're on the clock.
+              </p>
+            </div>
+          )}
+        </div>
+        <aside className="draft-side">
+          <PickEntry
+            draftId={state.draft_id}
+            season={state.season}
+            label={label}
+            onPickCommitted={onStateChange}
+          />
+          <RosterSummary
+            draftId={state.draft_id}
+            myPicks={state.my_picks}
+            leagueSettings={state.league_settings}
+            totalRounds={state.total_rounds}
+            slotSwaps={state.slot_swaps}
+            onStateChange={onStateChange}
+          />
+        </aside>
+      </div>
 
       {showFullBoard && (
         <FullDraftBoard

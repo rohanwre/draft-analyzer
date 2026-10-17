@@ -6,6 +6,7 @@ import {
 import type { Asset, BoardRow, Context, RosterTeam, Settings, SideValue, Slots, TeamImpact, TradeData, Verdict } from "../engine/tradeEngine";
 import { importLeague, leaguesForUser } from "../engine/sleeperImport";
 import type { ImportedLeague, LeagueSummary } from "../engine/sleeperImport";
+import Segmented from "../ui/Segmented";
 import AssetPicker from "./AssetPicker";
 import { AgeCurves, PlayoffCurve, SeasonBars } from "./Charts";
 import { assetName, decodeAssets, encodeAssets, fmtValue, pct, playerMeta, valueUnit } from "./format";
@@ -106,7 +107,7 @@ export default function TradePage() {
       <header className="masthead">
         <div>
           <p className="kicker">Trade desk · {data.season} week {data.week}</p>
-          <h1>Who wins the trade?</h1>
+          <h1 className="headline">Who wins the trade?</h1>
           <p className="dek">
             Every value here is what a player actually adds to a starting lineup, priced by how
             much lineup strength turned into playoff berths across{" "}
@@ -176,20 +177,6 @@ export default function TradePage() {
 }
 
 // ---------------------------------------------------------------------------
-
-function Segmented<T extends string>({ value, options, onChange, label }: {
-  value: T; options: [T, string][]; onChange: (v: T) => void; label: string;
-}) {
-  return (
-    <div className="seg" role="radiogroup" aria-label={label}>
-      {options.map(([v, text]) => (
-        <button key={v} type="button" role="radio" aria-checked={value === v} className={value === v ? "on" : ""} onClick={() => onChange(v)}>
-          {text}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 const SLOT_FIELDS: [keyof Slots, string][] = [
   ["QB", "QB"], ["RB", "RB"], ["WR", "WR"], ["TE", "TE"], ["FLEX", "FLX"], ["SUPER_FLEX", "SF"],

@@ -14,13 +14,15 @@ export default function RecommendationPanel({ recommendation: rec, onSelectPlaye
   return (
     <div className="recommendation-panel">
       <div className="panel-section">
-        <h3>
+        <h3>What winning teams took here</h3>
+        <p className="section-hint">
           {rec.trend_source === "similar_drafts"
-            ? `Based on ${rec.sample_size} similar historical drafts`
-            : `General round trends (all ${rec.league_size}-team, ${rec.league_type} leagues)`}
-          {rec.league_format === "dynasty" ? " — dynasty startup drafts" : ""}
-          {rec.scoring_type === "half_ppr" ? " — half-PPR scoring" : rec.scoring_type === "standard" ? " — standard scoring" : ""}
-        </h3>
+            ? `From ${(rec.sample_size ?? 0).toLocaleString()} historical drafts that looked like yours at this point`
+            : `General round trends across all ${rec.league_size}-team ${rec.league_type === "qb_premium" ? "superflex" : "1QB"} leagues`}
+          {rec.league_format === "dynasty" ? ", dynasty startups" : ""}
+          {rec.scoring_type === "half_ppr" ? ", half-PPR" : rec.scoring_type === "standard" ? ", standard scoring" : ""}.
+          Share of picks by teams that finished in their league's top 20%.
+        </p>
         {rec.trends.map((t) => (
           <TrendBar key={t.position} position={t.position} pct={t.top_two_pct} />
         ))}
@@ -33,15 +35,16 @@ export default function RecommendationPanel({ recommendation: rec, onSelectPlaye
       <div className="panel-section">
         <h3>Top available by position</h3>
         <p className="section-hint">
-          Ranked left-to-right by historical trend % — real ADP and trend % shown side by side, not blended into one score.
+          Positions ordered by historical trend %. ADP and trend are shown side by side, not blended.
         </p>
         <div className="position-groups-row">
           {rec.top_available_by_position.map((group) => (
             <div key={group.position} className="position-group">
               <div className="position-group-header">
-                <strong>{group.position}</strong> — {group.top_two_pct.toFixed(1)}%
-                {group.need === "urgent" && <span className="tag tag-urgent">URGENT</span>}
-                {group.need === "need" && <span className="tag tag-need">NEED</span>}
+                <span className={`pos pos-${group.position}`}>{group.position}</span>
+                <span className="num">{group.top_two_pct.toFixed(1)}%</span>
+                {group.need === "urgent" && <span className="tag tag-urgent">Urgent</span>}
+                {group.need === "need" && <span className="tag tag-need">Need</span>}
               </div>
               <ul className="player-list">
                 {group.players.map((p) => (
@@ -75,8 +78,8 @@ export default function RecommendationPanel({ recommendation: rec, onSelectPlaye
             {rec.value_picks.map((vp) => (
               <li key={vp.name} className="player-list-item">
                 <span className="player-list-name">
-                  {vp.name} ({vp.position}) <span className="adp">ADP {vp.rank}</span>{" "}
-                  <span className="value">value: +{vp.value.toFixed(0)} picks</span>
+                  <span className={`pos pos-${vp.position}`}>{vp.position}</span> {vp.name} <span className="adp">ADP {vp.rank}</span>{" "}
+                  <span className="value num">+{vp.value.toFixed(0)} picks</span>
                 </span>
                 <button
                   type="button"

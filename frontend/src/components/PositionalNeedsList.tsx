@@ -4,20 +4,26 @@ interface Props {
   needs: PositionalNeedItem[];
 }
 
+// One line, not a row per position: in early rounds every position is unfilled, and only
+// the urgent ones are worth calling out.
 export default function PositionalNeedsList({ needs }: Props) {
   if (needs.length === 0) return null;
+  const urgent = needs.filter((n) => n.urgency === "urgent");
 
   return (
-    <div className="panel-section">
-      <h3>Positional needs</h3>
-      <ul className="needs-list">
+    <div className="panel-section needs-line">
+      <span className="cap">Still to fill</span>
+      <div className="needs-chips">
         {needs.map((n) => (
-          <li key={n.position} className={n.urgency === "urgent" ? "need-urgent" : "need-normal"}>
-            {n.urgency === "urgent" ? "!! " : "-> "}
-            {n.position} {n.urgency === "urgent" ? "— URGENT, running out of rounds" : "— not yet filled"}
-          </li>
+          <span key={n.position} className={`need-chip${n.urgency === "urgent" ? " need-urgent" : ""}`}>
+            <span className={`pos pos-${n.position}`}>{n.position}</span>
+            {n.urgency === "urgent" && "running out of rounds"}
+          </span>
         ))}
-      </ul>
+      </div>
+      {urgent.length > 0 && (
+        <p className="section-hint">Urgent positions get a boost in the scores below.</p>
+      )}
     </div>
   );
 }

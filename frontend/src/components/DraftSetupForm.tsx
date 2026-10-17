@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { createDraft } from "../api/client";
 import type { DraftState } from "../api/types";
+import Segmented from "../ui/Segmented";
 
 interface Props {
   onCreated: (state: DraftState) => void;
@@ -55,108 +56,95 @@ export default function DraftSetupForm({ onCreated }: Props) {
     }
   }
 
+  const slotFields: [string, number, (v: number) => void][] = [
+    ["QB", qb, setQb], ["RB", rb, setRb], ["WR", wr, setWr], ["TE", te, setTe], ["FLEX", flex, setFlex], ["SFLEX", sflex, setSflex],
+  ];
+
   return (
-    <form className="setup-form" onSubmit={handleSubmit}>
-      <h2>Set up your draft</h2>
-
-      <label>
-        Teams in your league (required)
-        <input
-          type="number"
-          min={2}
-          required
-          placeholder="e.g. 12"
-          value={leagueSize}
-          onChange={(e) => setLeagueSize(e.target.value === "" ? "" : Number(e.target.value))}
-        />
-      </label>
-      <label>
-        Your draft slot (required{leagueSize !== "" ? `, 1-${leagueSize}` : ""})
-        <input
-          type="number"
-          min={1}
-          max={leagueSize === "" ? undefined : leagueSize}
-          required
-          placeholder="e.g. 4"
-          value={draftSlot}
-          onChange={(e) => setDraftSlot(e.target.value === "" ? "" : Number(e.target.value))}
-        />
-      </label>
-      <label>
-        Season
-        <input type="number" value={season} onChange={(e) => setSeason(Number(e.target.value))} />
-      </label>
-      <label>
-        Rounds
-        <input type="number" min={1} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
-      </label>
-      <label>
-        Draft format
-        <select value={leagueFormat} onChange={(e) => setLeagueFormat(e.target.value as "redraft" | "dynasty")}>
-          <option value="redraft">Redraft</option>
-          <option value="dynasty">Dynasty (startup draft)</option>
-        </select>
-      </label>
-      {leagueFormat === "dynasty" && (
-        <p className="hint-text">
-          Dynasty recommendations are based on startup drafts only, weighted by each team's
-          success across the following seasons — not just one year's result.
+    <div className="room">
+      <header className="masthead">
+        <p className="kicker">Draft room · {season} season</p>
+        <h1 className="headline">Draft like the teams that won.</h1>
+        <p className="dek">
+          Live pick advice from what actually worked in <b>95,000</b> real Sleeper leagues. Every pick
+          is matched to your slot, the roster you've built so far, and your league's settings.
         </p>
-      )}
+      </header>
 
-      <label>
-        Scoring format
-        <select value={scoringType} onChange={(e) => setScoringType(e.target.value as "ppr" | "half_ppr" | "standard")}>
-          <option value="ppr">PPR (full point per reception)</option>
-          <option value="half_ppr">Half PPR</option>
-          <option value="standard">Standard (no PPR)</option>
-        </select>
-      </label>
-      {scoringType !== "ppr" && (
-        <p className="hint-text">
-          Historical trends are matched against real {scoringType === "half_ppr" ? "half-PPR" : "standard"} drafts.
-          The ADP board itself is still averaged from full-PPR sources.
-        </p>
-      )}
+      <form className="setup-ticket" onSubmit={handleSubmit}>
+        <section className="setup-col">
+          <h2 className="section-title">Your league</h2>
+          <div className="setup-grid">
+            <label>
+              <span className="cap">Teams</span>
+              <input type="number" min={2} required placeholder="12" value={leagueSize}
+                onChange={(e) => setLeagueSize(e.target.value === "" ? "" : Number(e.target.value))} />
+            </label>
+            <label>
+              <span className="cap">Your slot{leagueSize !== "" ? ` (1-${leagueSize})` : ""}</span>
+              <input type="number" min={1} max={leagueSize === "" ? undefined : leagueSize} required placeholder="4" value={draftSlot}
+                onChange={(e) => setDraftSlot(e.target.value === "" ? "" : Number(e.target.value))} />
+            </label>
+            <label>
+              <span className="cap">Rounds</span>
+              <input type="number" min={1} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
+            </label>
+            <label>
+              <span className="cap">Season</span>
+              <input type="number" value={season} onChange={(e) => setSeason(Number(e.target.value))} />
+            </label>
+          </div>
 
-      <h3>League settings</h3>
-      <div className="settings-grid">
-        <label>
-          QB starters
-          <input type="number" min={0} value={qb} onChange={(e) => setQb(Number(e.target.value))} />
-        </label>
-        <label>
-          RB starters
-          <input type="number" min={0} value={rb} onChange={(e) => setRb(Number(e.target.value))} />
-        </label>
-        <label>
-          WR starters
-          <input type="number" min={0} value={wr} onChange={(e) => setWr(Number(e.target.value))} />
-        </label>
-        <label>
-          TE starters
-          <input type="number" min={0} value={te} onChange={(e) => setTe(Number(e.target.value))} />
-        </label>
-        <label>
-          FLEX spots
-          <input type="number" min={0} value={flex} onChange={(e) => setFlex(Number(e.target.value))} />
-        </label>
-        <label>
-          SuperFlex spots
-          <input type="number" min={0} value={sflex} onChange={(e) => setSflex(Number(e.target.value))} />
-        </label>
-      </div>
+          <div className="setup-row">
+            <span className="cap">Draft format</span>
+            <Segmented label="Draft format" value={leagueFormat} onChange={setLeagueFormat}
+              options={[["redraft", "Redraft"], ["dynasty", "Dynasty startup"]]} />
+          </div>
+          {leagueFormat === "dynasty" && (
+            <p className="hint-text">
+              Dynasty advice comes from startup drafts only, judged by each team's success over the
+              following seasons, not one year's result.
+            </p>
+          )}
 
-      <label className="checkbox-label">
-        <input type="checkbox" checked={tePremium} onChange={(e) => setTePremium(e.target.checked)} />
-        TE Premium scoring
-      </label>
+          <div className="setup-row">
+            <span className="cap">Scoring</span>
+            <Segmented label="Scoring" value={scoringType} onChange={setScoringType}
+              options={[["ppr", "PPR"], ["half_ppr", "Half PPR"], ["standard", "Standard"]]} />
+          </div>
+          {scoringType !== "ppr" && (
+            <p className="hint-text">
+              Trends come from real {scoringType === "half_ppr" ? "half-PPR" : "standard"} drafts. The ADP board
+              is still averaged from full-PPR sources.
+            </p>
+          )}
 
-      {error && <p className="error-text">{error}</p>}
+          <label className="checkbox-label">
+            <input type="checkbox" checked={tePremium} onChange={(e) => setTePremium(e.target.checked)} />
+            TE premium scoring
+          </label>
+        </section>
 
-      <button type="submit" disabled={busy || !isValid}>
-        {busy ? "Starting..." : "Start draft"}
-      </button>
-    </form>
+        <section className="setup-col">
+          <h2 className="section-title">Starting lineup</h2>
+          <div className="slot-grid">
+            {slotFields.map(([name, value, set]) => (
+              <label key={name}>
+                <input type="number" min={0} value={value} onChange={(e) => set(Number(e.target.value))} aria-label={`${name} starters`} />
+                <span>{name}</span>
+              </label>
+            ))}
+          </div>
+          <p className="hint-text">FLEX takes RB/WR. SFLEX takes any position, QB included.</p>
+
+          {error && <p className="error-text">{error}</p>}
+
+          <button type="submit" className="primary start-btn" disabled={busy || !isValid}>
+            {busy ? "Starting..." : "Start draft"}
+          </button>
+          {!isValid && <p className="hint-text">Enter your league size and draft slot to start.</p>}
+        </section>
+      </form>
+    </div>
   );
 }

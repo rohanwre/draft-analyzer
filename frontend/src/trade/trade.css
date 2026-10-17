@@ -1,85 +1,16 @@
-/* Trade desk: printed trade-ticket look. Paper + ink, hairline rules, square corners,
-   tabular mono figures, one stamp color. Chart/position colors validated for CVD and
-   contrast against both surfaces (dataviz validator). */
+/* Trade desk. Tokens, fonts, .pos/.cap/.kicker/.headline and base controls live in
+   ../index.css (shared with the draft room). */
 
 .trade-desk {
-  --paper: #f1ece2;
-  --paper-2: #e8e1d3;
-  --ink: #1a1815;
-  --ink-2: #4a453d;
-  --ink-3: #6f685c;
-  --rule: #1a1815;
-  --hair: #cfc6b4;
-  --stamp: #c2361b;
-  --side-a: #2563a8;
-  --side-b: #d0561f;
-  --up: #1d7a3a;
-  --down: #b3261e;
-  --pos-QB: #b07d00;
-  --pos-RB: #1a9a6c;
-  --pos-WR: #2a78d6;
-  --pos-TE: #d6457a;
-  --pos-PK: #6f685c;
-  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
-  --body: "Archivo", system-ui, sans-serif;
-  --fig: "JetBrains Mono", ui-monospace, Consolas, monospace;
-
-  background: var(--paper);
   color: var(--ink);
   font-family: var(--body);
   font-size: 15px;
   line-height: 1.45;
-  letter-spacing: 0;
   text-align: left;
   padding: 0 28px 48px;
   min-height: 100%;
   min-width: 0;   /* #root is a flex column; without this the board table widens the page */
   width: 100%;
-  box-sizing: border-box;
-  /* faint ledger grain */
-  background-image: repeating-linear-gradient(0deg, transparent 0 27px, rgba(26, 24, 21, 0.035) 27px 28px);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .trade-desk {
-    --paper: #191814;
-    --paper-2: #23211c;
-    --ink: #ece6da;
-    --ink-2: #c4bcad;
-    --ink-3: #9a9284;
-    --rule: #ece6da;
-    --hair: #3a362f;
-    --stamp: #ef6a4c;
-    --side-a: #4f8edb;
-    --side-b: #d95926;
-    --up: #4cc276;
-    --down: #ff7b70;
-    --pos-QB: #c98500;
-    --pos-RB: #199e70;
-    --pos-WR: #3987e5;
-    --pos-TE: #d55181;
-    --pos-PK: #9a9284;
-    background-image: repeating-linear-gradient(0deg, transparent 0 27px, rgba(236, 230, 218, 0.03) 27px 28px);
-  }
-}
-:root[data-theme="dark"] .trade-desk {
-  --paper: #191814;
-  --paper-2: #23211c;
-  --ink: #ece6da;
-  --ink-2: #c4bcad;
-  --ink-3: #9a9284;
-  --rule: #ece6da;
-  --hair: #3a362f;
-  --stamp: #ef6a4c;
-  --side-a: #4f8edb;
-  --side-b: #d95926;
-  --up: #4cc276;
-  --down: #ff7b70;
-  --pos-QB: #c98500;
-  --pos-RB: #199e70;
-  --pos-WR: #3987e5;
-  --pos-TE: #d55181;
-  --pos-PK: #9a9284;
 }
 
 .trade-desk * { box-sizing: border-box; }
@@ -88,15 +19,6 @@
 .trade-desk .num { font-family: var(--fig); font-variant-numeric: tabular-nums; }
 .trade-desk .muted { color: var(--ink-3); }
 .trade-desk .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.trade-desk .cap {
-  display: block;
-  font-family: var(--fig);
-  font-size: 10.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  margin-bottom: 4px;
-}
 .trade-desk .hint { font-size: 13px; color: var(--ink-3); }
 .trade-desk .up { color: var(--up); }
 .trade-desk .down { color: var(--down); }
@@ -133,37 +55,7 @@
 .trade-desk input[type="number"] { font-family: var(--fig); width: 64px; }
 .trade-desk input:disabled { color: var(--ink-3); border-color: var(--hair); }
 
-.seg { display: inline-flex; border: 1.5px solid var(--rule); }
-.trade-desk .seg button { border: 0; border-right: 1.5px solid var(--rule); padding: 7px 11px; font-weight: 500; }
-.trade-desk .seg button:last-child { border-right: 0; }
-.trade-desk .seg button.on { background: var(--ink); color: var(--paper); }
 
-/* Masthead */
-.masthead {
-  border-bottom: 3px solid var(--rule);
-  padding: 28px 0 18px;
-  display: grid;
-  gap: 8px;
-}
-.kicker {
-  font-family: var(--fig);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--stamp);
-}
-.masthead h1 {
-  font-size: clamp(38px, 6.4vw, 72px);
-  line-height: 0.92;
-  font-weight: 800;
-  font-stretch: 125%;
-  font-variation-settings: "wdth" 125;
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
-  margin: 6px 0 10px;
-}
-.dek { max-width: 62ch; color: var(--ink-2); font-size: 16px; }
-.dek b { font-family: var(--fig); font-weight: 600; color: var(--ink); }
 
 /* Settings strip */
 .strip {
@@ -254,21 +146,6 @@
 .trade-desk .asset .x { border: 0; padding: 4px; font-size: 18px; line-height: 1; color: var(--ink-3); }
 .trade-desk .asset .x:hover { color: var(--down); background: none; }
 
-.pos {
-  display: inline-block;
-  font-family: var(--fig);
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 3px 0;
-  width: 30px;
-  text-align: center;
-  color: #fff;
-  background: var(--pos-PK);
-}
-.pos-QB { background: var(--pos-QB); }
-.pos-RB { background: var(--pos-RB); }
-.pos-WR { background: var(--pos-WR); }
-.pos-TE { background: var(--pos-TE); }
 
 /* Picker */
 .picker { margin-top: 12px; display: grid; gap: 8px; }

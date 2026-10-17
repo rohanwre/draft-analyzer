@@ -25,17 +25,16 @@ export default function App() {
   return (
     <>
       <nav className="app-nav" aria-label="Tools">
-        <span className="app-nav-brand">Draft Analyzer</span>
-        <a href="#/" className={route === "draft" ? "on" : ""}>Draft room</a>
-        <a href="#/trade" className={route === "trade" ? "on" : ""}>Trade desk</a>
+        <a href="#/" className="app-nav-brand">Draft<span>Analyzer</span></a>
+        <div className="app-nav-tabs">
+          <a href="#/" className={route === "draft" ? "on" : ""}>Draft room</a>
+          <a href="#/trade" className={route === "trade" ? "on" : ""}>Trade desk</a>
+        </div>
       </nav>
       {route === "trade" ? (
         <TradePage />
       ) : (
         <div className="app">
-          <header className="app-header">
-            <h1>Fantasy Draft Advisor</h1>
-          </header>
           <main>
             {draftState ? (
               <DraftBoard state={draftState} onStateChange={setDraftState} />

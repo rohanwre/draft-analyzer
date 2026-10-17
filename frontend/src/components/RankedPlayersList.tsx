@@ -9,31 +9,35 @@ interface Props {
 }
 
 export default function RankedPlayersList({ players, onSelectPlayer, disabled }: Props) {
+  // A tag every row shares (e.g. round 1, when every position is a "need") says nothing.
+  const allSameNeed = players.length > 1 && players.every((p) => p.need === players[0].need);
+  const allCliff = players.length > 1 && players.every((p) => p.cliff_bonus >= CLIFF_TAG_THRESHOLD);
+  const showNeed = (need: string) => need === "urgent" || !allSameNeed;
+
   return (
     <div className="panel-section">
-      <h3>Ranked picks</h3>
+      <h3>Best picks right now</h3>
       <p className="section-hint">
-        One blended score per player: historical trend % + roster-need adjustment + ADP-fall
-        value + positional cliff. A player who's fallen far enough past their ADP can outrank
-        roster need on its own, and a position about to dry up before your next turn gets a
-        boost now even if another position looks similar today.
+        One score per player: what winning teams took here, plus your roster needs, how far he's fallen
+        past ADP, and whether his position is about to dry up before your next turn.
       </p>
       <ul className="player-list">
         {players.map((p) => (
           <li key={`${p.position}-${p.name}`} className="ranked-player">
-            <span className="ranked-score">{p.score.toFixed(1)}</span>
+            <span className="ranked-score num">{p.score.toFixed(1)}</span>
+            <span className={`pos pos-${p.position}`}>{p.position}</span>
             <span className="ranked-player-name">
-              {p.name} <span className="adp">({p.position}, ADP {p.rank})</span>
+              {p.name} <span className="adp">ADP {p.rank}</span>
             </span>
-            {p.need === "urgent" && <span className="tag tag-urgent">URGENT NEED</span>}
-            {p.need === "need" && <span className="tag tag-need">NEED</span>}
-            {(p.need === "surplus" || p.need === "filled") && (
-              <span className="tag tag-surplus">HAVE ENOUGH</span>
+            {p.need === "urgent" && <span className="tag tag-urgent">Urgent need</span>}
+            {p.need === "need" && showNeed(p.need) && <span className="tag tag-need">Need</span>}
+            {(p.need === "surplus" || p.need === "filled") && showNeed(p.need) && (
+              <span className="tag tag-surplus">Have enough</span>
             )}
-            {p.cliff_bonus >= CLIFF_TAG_THRESHOLD && (
-              <span className="tag tag-cliff">SCARCE SOON</span>
+            {p.cliff_bonus >= CLIFF_TAG_THRESHOLD && !allCliff && (
+              <span className="tag tag-cliff">Scarce soon</span>
             )}
-            {p.value > 0 && <span className="value">+{p.value.toFixed(0)} past ADP</span>}
+            {p.value > 0 && <span className="value num">+{p.value.toFixed(0)} past ADP</span>}
             <button
               type="button"
               className="select-btn"

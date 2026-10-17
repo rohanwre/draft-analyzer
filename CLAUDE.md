@@ -36,7 +36,7 @@ the live site silently serves stale data.
 Writes `frontend/public/data/trade_values.json` (~200 KB). Needs local MySQL plus internet
 (Sleeper API). Sleeper downloads are cached in `trade_cache/` (gitignored); `--refresh`
 re-downloads. **Re-run weekly in-season with `--refresh`**, because ROS projections, the
-current week and injuries all come from that pull. Then commit the JSON and deploy.
+current week and injuries all come from that pull. Then commit the JSON locally; the user pushes/deploys.
 
 What it computes:
 1. `players`: every active QB/RB/WR/TE with real projections (or young + rostered). Sleeper
@@ -84,6 +84,23 @@ the league for playoff odds. Pick keys include the original roster (`|r<id>`) so
 own 2027 1sts don't collide. Leagues that haven't drafted yet have empty rosters (all teams
 show identical odds), which is expected.
 
+## Frontend design system (both tools)
+
+The user does NOT want a generic "AI slop" fantasy-app look. Both tools share one system, so
+keep new UI in it rather than adding cards, gradients, rounded pills or a purple accent:
+- `frontend/src/index.css`: tokens (`--paper`, `--ink`, `--rule`, `--hair`, `--stamp`,
+  `--side-a/b`, `--pos-QB/RB/WR/TE`), dark mode, fonts (Archivo with wdth axis + JetBrains Mono,
+  loaded in `index.html`), and primitives: `.pos` tags, `.cap` labels, `.kicker`, `.headline`,
+  `.masthead`/`.dek`, `.seg` toggles (`src/ui/Segmented.tsx`), square ink buttons/inputs,
+  `button.primary`.
+- Idiom: paper and ink, 1.5px rules, dotted row dividers, square corners, hard offset shadows on
+  popovers/modals, mono tabular numbers, uppercase expanded display type, one stamp color for
+  verdicts and "on the clock". Tags are outlined mono, never filled pills.
+- Only show a tag where it tells rows apart. If every row would carry it, drop it
+  (see `RankedPlayersList`).
+- Draft room styles live in `src/App.css`. The live draft is two columns (recommendations plus a
+  sticky pick/roster sidebar); on phones the order is pick box, recommendations, roster.
+
 ### UI: `frontend/src/trade/`
 
 `TradePage.tsx` (all sections), `AssetPicker.tsx`, `Charts.tsx` (hand-rolled SVG),
@@ -104,8 +121,9 @@ average-team value even in league mode; the verdict uses roster-aware values.
 
 ## Conventions
 
-- Push policy: workflow-affecting changes get committed and pushed to `main` (auto-deploys).
-  Small/isolated ones get a local commit only.
+- **NEVER `git push`, to any branch or remote, for any reason.** The user pushes themselves.
+  Local commits are fine. `main` auto-deploys to Vercel/GitHub Pages/Railway, so a push is
+  a production deploy. Also don't run deploy commands (`vercel --prod`, etc.).
 - Commit only the files you touched. The working tree often has unrelated in-progress
   work (Airflow/Terraform/Databricks/Snowflake files).
 - Never TRUNCATE or bulk-write the Railway prod DB from an agent session (classifier-blocked).

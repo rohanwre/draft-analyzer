@@ -1,111 +1,211 @@
+/* Shared design system for the draft room and trade desk: paper + ink, hairline rules,
+   square corners, tabular mono figures, one stamp color. Side and position colors were
+   validated (dataviz palette validator) for CVD separation and contrast on both surfaces;
+   re-validate if you change them. */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --paper: #f1ece2;
+  --paper-2: #e8e1d3;
+  --ink: #1a1815;
+  --ink-2: #4a453d;
+  --ink-3: #6f685c;
+  --rule: #1a1815;
+  --hair: #cfc6b4;
+  --stamp: #c2361b;
+  --side-a: #2563a8;
+  --side-b: #d0561f;
+  --up: #1d7a3a;
+  --down: #b3261e;
+  --warn: #9a5b00;
+  --pos-QB: #b07d00;
+  --pos-RB: #1a9a6c;
+  --pos-WR: #2a78d6;
+  --pos-TE: #d6457a;
+  --pos-PK: #6f685c;
+  --grain: rgba(26, 24, 21, 0.035);
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "Archivo", system-ui, sans-serif;
+  --fig: "JetBrains Mono", ui-monospace, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
+  /* Legacy names some older rules still use. */
+  --text: var(--ink-2);
+  --text-h: var(--ink);
+  --bg: var(--paper);
+  --border: var(--hair);
+  --accent: var(--stamp);
+
+  color-scheme: light;
+  font: 15px/1.45 var(--body);
+  color: var(--ink);
+  background: var(--paper);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #191814;
+    --paper-2: #23211c;
+    --ink: #ece6da;
+    --ink-2: #c4bcad;
+    --ink-3: #9a9284;
+    --rule: #ece6da;
+    --hair: #3a362f;
+    --stamp: #ef6a4c;
+    --side-a: #4f8edb;
+    --side-b: #d95926;
+    --up: #4cc276;
+    --down: #ff7b70;
+    --warn: #e0a040;
+    --pos-QB: #c98500;
+    --pos-RB: #199e70;
+    --pos-WR: #3987e5;
+    --pos-TE: #d55181;
+    --pos-PK: #9a9284;
+    --grain: rgba(236, 230, 218, 0.03);
   }
 }
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #191814;
+  --paper-2: #23211c;
+  --ink: #ece6da;
+  --ink-2: #c4bcad;
+  --ink-3: #9a9284;
+  --rule: #ece6da;
+  --hair: #3a362f;
+  --stamp: #ef6a4c;
+  --side-a: #4f8edb;
+  --side-b: #d95926;
+  --up: #4cc276;
+  --down: #ff7b70;
+  --warn: #e0a040;
+  --pos-QB: #c98500;
+  --pos-RB: #199e70;
+  --pos-WR: #3987e5;
+  --pos-TE: #d55181;
+  --pos-PK: #9a9284;
+  --grain: rgba(236, 230, 218, 0.03);
 }
+
+*, *::before, *::after { box-sizing: border-box; }
 
 body {
   margin: 0;
+  background: var(--paper);
+  /* faint ledger grain */
+  background-image: repeating-linear-gradient(0deg, transparent 0 27px, var(--grain) 27px 28px);
+  min-height: 100svh;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+#root {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+h1, h2, h3 { font-family: var(--display); color: var(--ink); margin: 0; }
+p { margin: 0; }
+
+/* Shared primitives */
+
+.num { font-family: var(--fig); font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-3); }
+.cap {
+  display: block;
+  font-family: var(--fig);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 4px;
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
+.kicker {
+  font-family: var(--fig);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--stamp);
 }
-p {
-  margin: 0;
+.headline {
+  font-family: var(--display);
+  font-size: clamp(38px, 6.4vw, 72px);
+  line-height: 0.92;
+  font-weight: 800;
+  font-variation-settings: "wdth" 125;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  margin: 6px 0 10px;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+.pos {
+  display: inline-block;
+  font-family: var(--fig);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 2px 0;
+  width: 30px;
+  text-align: center;
+  color: #fff;
+  background: var(--pos-PK);
+  flex-shrink: 0;
+}
+.pos-QB { background: var(--pos-QB); }
+.pos-RB { background: var(--pos-RB); }
+.pos-WR { background: var(--pos-WR); }
+.pos-TE { background: var(--pos-TE); }
+
+button {
+  font: 600 13px/1 var(--body);
+  color: var(--ink);
+  background: transparent;
+  border: 1.5px solid var(--rule);
+  border-radius: 0;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--paper-2); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--ink); color: var(--paper); }
+button.primary:hover:not(:disabled) { background: var(--stamp); border-color: var(--stamp); }
+
+input, select {
+  font: 500 14px var(--body);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 0;
+  padding: 8px 10px;
+  min-width: 0;
+}
+input[type="number"] { font-family: var(--fig); }
+input[type="checkbox"] { accent-color: var(--ink); width: 15px; height: 15px; }
+
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid var(--side-a);
+  outline-offset: 2px;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* Page masthead (both tools) */
+.masthead {
+  border-bottom: 3px solid var(--rule);
+  padding: 28px 0 18px;
+  display: grid;
+  gap: 8px;
 }
+.dek { max-width: 62ch; color: var(--ink-2); font-size: 16px; }
+.dek b { font-family: var(--fig); font-weight: 600; color: var(--ink); }
+
+/* Segmented toggle */
+.seg { display: inline-flex; border: 1.5px solid var(--rule); width: fit-content; }
+.seg button { border: 0; border-right: 1.5px solid var(--rule); padding: 8px 12px; font-weight: 500; }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--ink); color: var(--paper); }
