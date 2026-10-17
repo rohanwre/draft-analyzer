@@ -1,0 +1,16 @@
+# Airflow doesn't support running natively on Windows (WSL2 or a container are the
+# supported paths) - this extends the official image with this project's own
+# dependencies (mysql-connector-python, snowflake-connector-python, etc.) so the
+# BashOperators in dags/ can actually import and run the pipeline scripts.
+FROM apache/airflow:2.10.3-python3.11
+
+# A JRE for PySpark: the downstream DAG runs build_trend_stats as a local-mode Spark job
+# (databricks/build_trend_stats_spark.py --output mysql).
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
+USER airflow
+
+COPY requirements.txt requirements-databricks.txt /
+RUN pip install --no-cache-dir -r /requirements.txt -r /requirements-databricks.txt

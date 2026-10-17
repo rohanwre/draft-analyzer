@@ -1,6 +1,7 @@
 import requests
 import mysql.connector
 import json
+import sys
 import time
 from config import DB_CONFIG
 
@@ -26,8 +27,18 @@ def fetch_all_settings():
     db = get_db()
     cursor = db.cursor()
 
-    # target all leagues since we need to backfill season_type everywhere
-    cursor.execute("SELECT league_id FROM leagues")
+    # only leagues still missing a setting - crawler.py fills these at crawl time now, so
+    # this is a backfill for gaps, and a no-op when there are none. (It used to re-fetch
+    # every league, which is ~95K Sleeper API calls / hours per run - too slow to sit in
+    # the crawl DAG.) --all forces the old full refresh.
+    if "--all" in sys.argv:
+        cursor.execute("SELECT league_id FROM leagues")
+    else:
+        cursor.execute("""
+            SELECT league_id FROM leagues
+            WHERE roster_positions IS NULL OR roster_positions IN ('', '[]')
+               OR league_size IS NULL OR season_type IS NULL
+        """)
     league_ids = [row[0] for row in cursor.fetchall()]
 
     print(f"Fetching settings for {len(league_ids)} leagues...")
