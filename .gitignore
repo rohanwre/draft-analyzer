@@ -26,3 +26,6 @@ databricks_export/
 
 # Sleeper API downloads for build_trade_values.py - re-fetched with --refresh
 trade_cache/
+
+# Local notes for Claude Code - never committed
+CLAUDE.md
