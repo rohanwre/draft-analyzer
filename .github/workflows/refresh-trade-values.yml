@@ -1,0 +1,52 @@
+name: Refresh trade values
+
+# Every other day, re-pull Sleeper projections/injuries for the trade desk and open (or
+# update) a pull request with the new trade_values.json. Nothing goes live until the PR
+# is merged; merging pushes to main, which runs deploy-pages.yml as usual.
+on:
+  schedule:
+    - cron: '0 11 */2 * *'   # ~6-7am US Eastern
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-trade-values
+  cancel-in-progress: false
+
+env:
+  BRANCH: trade-values-refresh
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install requests mysql-connector-python python-dotenv
+      - name: Rebuild live trade values
+        run: python build_trade_values.py --live-only --refresh
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- frontend/public/data/trade_values.json; then
+            echo "No changes."
+            exit 0
+          fi
+          git config user.name "rohanwre"
+          git config user.email "rohan.wre@gmail.com"
+          git checkout -B "$BRANCH"
+          git add frontend/public/data/trade_values.json
+          git commit -m "Refresh trade values ($(date -u +%Y-%m-%d))"
+          git push --force origin "$BRANCH"
+          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "Refresh trade values" \
+              --body "Fresh Sleeper projections and injuries for the trade desk. Merging deploys the site."
+          fi
