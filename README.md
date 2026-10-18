@@ -193,6 +193,8 @@ draft-analyzer/
 ├── package_lambda.py             # builds the Lambda deployment zip
 ├── requirements-lambda.txt       # minimal deps for the Lambda package (no uvicorn/snowflake)
 ├── dags/                         # Airflow DAGs (crawl + downstream pipeline) — see OPERATIONS.md
+├── analysis/                     # pandas/NumPy notebooks: draft strategy, projection accuracy, aging curves
+├── requirements-analysis.txt     # pandas/matplotlib/jupyter for analysis/
 ├── scripts/
 │   └── export_static_data.py     # exports DB tables to frontend/public/data/*.json
 ├── frontend/                     # React + TypeScript app (Vite)
@@ -203,6 +205,13 @@ draft-analyzer/
 ├── OPERATIONS.md                 # pipeline stage reference, orchestration, troubleshooting
 └── .env                          # not committed
 ```
+
+## Analysis
+
+[`analysis/`](analysis/) has Jupyter notebooks (pandas, NumPy, matplotlib) that dig into the
+crawled data directly: which draft openings and QB timing actually led to the playoffs, how
+accurate Sleeper's projections have been (QBs run about 3 points/game high every season), and
+real-stats aging curves by position. They're committed with outputs, so they render on GitHub.
 
 ## Data
 

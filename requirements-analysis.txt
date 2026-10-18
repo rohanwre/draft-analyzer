@@ -1,0 +1,7 @@
+# Deps for the analysis/ notebooks - deliberately separate from requirements.txt.
+# Also needs mysql-connector-python, python-dotenv and requests from requirements.txt.
+pandas
+numpy
+matplotlib
+jupyterlab
+nbconvert
