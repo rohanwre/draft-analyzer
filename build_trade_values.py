@@ -13,8 +13,8 @@ Four pieces, each written to the JSON:
 2. calibration - how much lineup strength turns into real outcomes. For every crawled
                  roster, z-score its optimal_points_total within its league and fit
                  P(made_playoffs) and win% against that z. Local DB (rosters/leagues).
-3. ageCurves   - year-over-year retention of projected points by position and age,
-                 from player_weekly_projections 2020-2025 + this season. Point-weighted
+3. ageCurves   - year-over-year retention of ACTUAL points per game played by position
+                 and age, from Sleeper's weekly box-score stats 2020-2025. Point-weighted
                  and kernel-smoothed across neighbouring ages (raw cells are ~10-50 players).
 4. picks       - what the Nth rookie taken in a real dynasty rookie draft turned into:
                  per overall rookie pick (1QB vs superflex), the players taken there and
@@ -53,6 +53,8 @@ MAX_ROOKIE_PICK = 64           # 4 rounds of a 16-team rookie draft
 TRAJECTORY_YEARS = 5           # seasons of production tracked per rookie
 MIN_PICKS_PER_SLOT = 30
 AGE_RANGE = range(20, 40)
+AVAILABILITY = 15 / 17         # same as tradeEngine.ts: share of games a healthy starter plays
+MIN_GAMES = 6                  # games played for a season to count as "had a role"
 
 
 def sleeper_get(url, cache_name, refresh):
@@ -107,6 +109,29 @@ def fetch_stats_to_date(season, current_week, refresh):
             if (row.get("player") or {}).get("position") in POS_IDX and stats.get("gp"):
                 games[row["player_id"]].append(float(stats.get("pts_ppr") or 0))
     return games
+
+
+def fetch_hist_actuals():
+    """{(player_id, season): (position, ppr points per game played, games)} for completed
+    seasons, from Sleeper's weekly box-score stats. Past seasons never change, so these
+    are always served from trade_cache/ once downloaded (--refresh doesn't re-pull them)."""
+    out = {}
+    for season in HIST_SEASONS:
+        games, pos_of = defaultdict(list), {}
+        for week in range(1, LAST_WEEK + 1):
+            rows = sleeper_get(
+                f"https://api.sleeper.app/stats/nfl/{season}/{week}?season_type=regular",
+                f"stats_{season}_{week}.json", False,
+            )
+            for row in rows:
+                pos = (row.get("player") or {}).get("position")
+                stats = row.get("stats") or {}
+                if pos in POS_IDX and stats.get("gp"):
+                    games[row["player_id"]].append(float(stats.get("pts_ppr") or 0))
+                    pos_of[row["player_id"]] = pos
+        for pid, pts in games.items():
+            out[(pid, season)] = (pos_of[pid], statistics.mean(pts), len(pts))
+    return out
 
 
 def load_market(cursor, season):
@@ -262,18 +287,27 @@ LEVEL_EDGES = [8, 12, 16]          # points/week bins for the level adjustment
 AGE_BAND_EDGES = [25, 28]          # age bands: <25, 25-27, 28+
 
 
-def retention_samples(totals, players, season):
-    """[(pos, age, points/week this season, points/week next season)] for every player-season with a real role."""
+def retention_samples(actuals, players):
+    """[(pos, age, points/game this season, points/game next season)] for every completed
+    player-season with a real role. Per game played, so missed games don't read as aging
+    (the engine applies AVAILABILITY separately). A player who plays no games the next
+    season counts as 0 - washing out and retiring is part of aging; 1-3 games is too
+    noisy to call either way and is skipped."""
     out = []
-    for (pid, s), (pos, cur) in totals.items():
-        info = players.get(pid) or {}
-        pos = pos or info.get("position")
-        if pos not in POS_IDX or cur < 3 or s >= season:
+    for (pid, s), (pos, cur, gp) in actuals.items():
+        if gp < MIN_GAMES or cur < 3 or s + 1 not in HIST_SEASONS:
             continue
-        age = age_on(info.get("birth_date"), s)
+        age = age_on((players.get(pid) or {}).get("birth_date"), s)
         if age is None:
             continue
-        out.append((pos, age, cur, min(totals.get((pid, s + 1), (pos, 0.0))[1], cur * 2.5)))
+        nxt = actuals.get((pid, s + 1))
+        if nxt is None:
+            nxt_ppg = 0.0
+        elif nxt[2] < 4:
+            continue
+        else:
+            nxt_ppg = nxt[1]
+        out.append((pos, age, cur, min(nxt_ppg, cur * 2.5)))
     return out
 
 
@@ -285,8 +319,9 @@ def age_band(age):
     return sum(1 for e in AGE_BAND_EDGES if age >= e)
 
 
-def build_age_curves(totals, players, season):
-    samples = retention_samples(totals, players, season)
+def build_age_curves(actuals, players):
+    samples = retention_samples(actuals, players)
+    print(f"  {len(samples)} player-seasons of actual stats")
     raw = defaultdict(lambda: [0.0, 0.0, 0])   # (pos, age) -> [sum cur, sum next, n]
     for pos, age, cur, nxt in samples:
         cell = raw[(pos, int(age))]
@@ -313,9 +348,9 @@ def build_age_curves(totals, players, season):
                     cur += w * c[0]
                     nxt += w * c[1]
                     n += w * c[2]
-            # Thin tails (very young / very old) shrink toward a neutral-ish 0.85 prior.
+            # Thin tails (very young / very old) shrink toward the league average (neutral).
             prior_w = 40.0
-            ratio = (nxt + 0.85 * prior_w) / (cur + prior_w) if cur else 0.85
+            ratio = (nxt + league_avg * prior_w) / (cur + prior_w) if cur else league_avg
             curve[age] = round(ratio / league_avg, 3)
         # Retention shouldn't rise again once a player is past their prime.
         peak = max(curve, key=curve.get)
@@ -331,7 +366,8 @@ def build_age_curves(totals, players, season):
     level = defaultdict(lambda: [0.0, 0.0])
     for pos, age, cur, nxt in samples:
         pred = cur * curves[pos][max(0, min(len(AGE_RANGE) - 1, int(age) - AGE_RANGE.start))] * league_avg
-        cell = level[(age_band(age), level_bin(cur))]
+        # The engine passes availability-adjusted points/week as the level.
+        cell = level[(age_band(age), level_bin(cur * AVAILABILITY))]
         cell[0] += pred
         cell[1] += nxt
     prior = 30.0   # shrink thin cells toward 1.0
@@ -467,9 +503,9 @@ def main():
     print("Calibration (lineup strength -> playoffs)...")
     calibration = build_calibration(cursor)
 
-    print("Age curves...")
+    print("Age curves (actual stats)...")
+    curves = build_age_curves(fetch_hist_actuals(), players)
     totals = season_totals(cursor, weekly, season)
-    curves = build_age_curves(totals, players, season)
 
     print("Rookie pick outcomes...")
     picks = build_pick_samples(cursor, players, totals, curves, season)
