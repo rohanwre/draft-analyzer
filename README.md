@@ -1,10 +1,13 @@
 # Fantasy Draft Advisor
 
-A fantasy football draft tool that analyzes historical draft data from thousands of real Sleeper leagues to recommend picks in real time based on what top-finishing teams actually drafted.
+Fantasy football tools built on ~95k real Sleeper leagues (2020-2025): a live draft advisor that recommends picks based on what top-finishing teams actually drafted, and a trade calculator that values players by how much they change your starting lineup.
 
 ## Live demo
 
 Try it with no setup at **[rohanwre.github.io/draft-analyzer](https://rohanwre.github.io/draft-analyzer/)** — runs entirely in your browser against a static snapshot of the historical data, no backend required.
+
+- **[Draft room](https://rohanwre.github.io/draft-analyzer/#/)**: live pick recommendations during your draft.
+- **[Trade desk](https://rohanwre.github.io/draft-analyzer/#/trade)**: redraft and dynasty trade calculator. Values each side by starter points added and the change in playoff odds, and can import your Sleeper league to judge a trade against your actual rosters.
 
 ## How It Works
 
