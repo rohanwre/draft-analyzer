@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  assetValue, buildBoard, buildContext, defaultSettings, evaluateGeneric, evaluateLeague, loadTradeData,
+  assetValue, buildBoard, buildContext, defaultSettings, evaluateGeneric, evaluateLeague, EXPERT_WEIGHT, loadTradeData,
   makePick, playoffDelta, playoffOdds, rosterPieces, rosterSeasonTotals, seasonCount,
 } from "../engine/tradeEngine";
 import type { Asset, BoardRow, Context, RosterTeam, Settings, SideValue, Slots, TeamImpact, TradeData, Verdict } from "../engine/tradeEngine";
@@ -109,10 +109,10 @@ export default function TradePage() {
           <p className="kicker">Trade desk · {data.season} week {data.week}</p>
           <h1 className="headline">Who wins the trade?</h1>
           <p className="dek">
-            Every value here is what a player actually adds to a starting lineup, priced by how
-            much lineup strength turned into playoff berths across{" "}
+            Every value here is what a player adds to a starting lineup, priced by how much lineup
+            strength turned into playoff berths across{" "}
             <b>{(ctx.data.calibration.redraft.leagues + ctx.data.calibration.dynasty.leagues).toLocaleString()}</b> real
-            Sleeper leagues. Not by what people are currently trading for.
+            Sleeper leagues, then checked against the expert consensus so no single projection decides it.
           </p>
         </div>
       </header>
@@ -169,7 +169,7 @@ export default function TradePage() {
       )}
 
       <footer className="desk-foot">
-        Projections: Sleeper, refreshed {data.generated}. Outcome data: {ctx.data.calibration.redraft.rosters.toLocaleString()} redraft
+        Projections and stats: Sleeper. Expert consensus: FantasyPros via DynastyProcess. Refreshed {data.generated}. Outcome data: {ctx.data.calibration.redraft.rosters.toLocaleString()} redraft
         and {ctx.data.calibration.dynasty.rosters.toLocaleString()} dynasty rosters, 2020–2025.
       </footer>
     </div>
@@ -539,15 +539,13 @@ function ValueBoard({ ctx, rows, onAdd }: { ctx: Context; rows: BoardRow[]; onAd
               <th>Player</th>
               <th className="num">{dyn ? "Dyn pts" : "Pts/wk"}</th>
               {dyn && <th className="hide-sm">By season</th>}
-              <th className="num hide-sm" title="Rank by preseason ADP in this format">Market</th>
-              <th className="hide-sm">vs. market</th>
+              <th className="num hide-sm" title="Rank by the lineup model alone">Model</th>
+              <th className="num hide-sm" title="Rank by FantasyPros expert consensus (dynasty, this QB format)">Experts</th>
               <th><span className="sr">Add</span></th>
             </tr>
           </thead>
           <tbody>
             {shown.map((r) => {
-              const gap = r.marketRank != null ? r.marketRank - r.rank : null;
-              const signal = gap == null ? "" : gap >= 15 ? "buy" : gap <= -15 ? "sell" : "";
               return (
                 <tr key={r.player.id}>
                   <td className="num muted">{r.rank}</td>
@@ -566,8 +564,8 @@ function ValueBoard({ ctx, rows, onAdd }: { ctx: Context; rows: BoardRow[]; onAd
                       </svg>
                     </td>
                   )}
-                  <td className="num hide-sm muted">{r.marketRank ?? "–"}</td>
-                  <td className="hide-sm">{signal && <span className={`signal ${signal}`}>{signal === "buy" ? "Buy" : "Sell"} {Math.abs(gap!)}</span>}</td>
+                  <td className="num hide-sm muted">{r.modelRank}</td>
+                  <td className="num hide-sm muted">{r.expertRank ?? "–"}</td>
                   <td className="add-cell">
                     <button type="button" className="mini" onClick={() => onAdd("A", r.player.id)} aria-label={`Give ${r.player.name} to side A`}>A</button>
                     <button type="button" className="mini" onClick={() => onAdd("B", r.player.id)} aria-label={`Give ${r.player.name} to side B`}>B</button>
@@ -579,8 +577,9 @@ function ValueBoard({ ctx, rows, onAdd }: { ctx: Context; rows: BoardRow[]; onAd
         </table>
       </div>
       <p className="hint">
-        "Market" is preseason ADP rank in this format. <b>Buy</b> = our lineup model ranks the player
-        well above where drafters took him; <b>Sell</b> = the reverse.
+        Rank blends two grades: the <b>model</b> (lineup points from Sleeper projections mixed with real
+        points per game this season and last) and the <b>experts</b> (FantasyPros dynasty consensus,
+        {" "}{Math.round(EXPERT_WEIGHT[ctx.settings.format] * 100)}% of the value in {ctx.settings.format}).
       </p>
     </section>
   );
@@ -603,13 +602,19 @@ function Method({ ctx, board }: { ctx: Context; board: BoardRow[] }) {
   return (
     <section className="method">
       <div className="method-col">
-        <h3>1 · Value is lineup points, not trade demand</h3>
+        <h3>1 · Value is lineup points, graded more than one way</h3>
         <p>
-          KTC, FantasyCalc and Roster Audit price players by what people are trading for or voting on.
-          Here, each player's Sleeper rest-of-season projection (week by week, byes included) is dropped
-          into simulated {ctx.settings.teams}-team lineups with your starter settings. His value is how many
-          starter points he adds on average. Packages are valued together, so two WR3s who can't both start
-          aren't worth one WR1. The consolidation premium comes from the lineup math, not a fudge factor.
+          Each player's rest-of-season outlook (Sleeper's weekly projection, byes included, pulled toward
+          what he has actually scored per game this season and last) is dropped into simulated{" "}
+          {ctx.settings.teams}-team lineups with your starter settings. The model value is how many starter
+          points he adds on average.
+        </p>
+        <p>
+          That's then blended with the FantasyPros expert consensus dynasty rank ({ctx.settings.slots.SUPER_FLEX ? "superflex" : "1QB"}),
+          mapped onto the same points scale: the experts' Nth player gets the model's Nth highest value.
+          Experts are {Math.round(EXPERT_WEIGHT[ctx.settings.format] * 100)}% of the value in {ctx.settings.format}. They see
+          draft capital, talent and QB scarcity that a projection can't. Packages are still valued together,
+          so two WR3s who can't both start aren't worth one WR1.
         </p>
         <h3>2 · Points priced by real outcomes</h3>
         <p>
@@ -621,12 +626,12 @@ function Method({ ctx, board }: { ctx: Context; board: BoardRow[] }) {
         <PlayoffCurve points={cal.curve} fit={(z) => playoffOdds(ctx, z)} />
       </div>
       <div className="method-col">
-        <h3>3 · Aging from 6 seasons of projections</h3>
+        <h3>3 · Aging from 6 seasons of real stats</h3>
         <p>
           Dynasty values project each player 4 more seasons using how players of the same position and age
-          actually held their projected output year to year (2020–2026), relative to the league as a whole.
-          Elite young players get less growth than mid-tier young players. Future seasons are weighted by your
-          window: win now, balanced, or rebuild.
+          held their points per game year to year (2020–2025), relative to the league as a whole. Half of each
+          year's fitted change is applied and growth is capped at 30%, so young players don't compound into
+          stars on paper. Future seasons are weighted by your window: win now, balanced, or rebuild.
         </p>
         <AgeCurves startAge={ctx.data.ageCurves.startAge} byPos={ctx.data.ageCurves.byPos} />
         <h3>4 · Picks are what that pick actually became</h3>
@@ -648,7 +653,7 @@ function Method({ ctx, board }: { ctx: Context; board: BoardRow[] }) {
         <h3>What it doesn't know</h3>
         <p className="muted">
           Current win-loss record, injuries beyond what Sleeper's projections reflect, team needs beyond your
-          starting lineup, and kickers, defenses and IDP. Market rank is preseason ADP, so it's stale by midseason.
+          starting lineup, and kickers, defenses and IDP. Expert ranks are dynasty ranks, so they count for less in redraft.
         </p>
       </div>
     </section>

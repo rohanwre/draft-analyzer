@@ -8,8 +8,10 @@ market-only).
 Four pieces, each written to the JSON:
 
 1. players     - current-season (Sleeper) ROS weekly projections + receptions for every
-                 fantasy-relevant QB/RB/WR/TE, age, team, plus preseason ADP for a
-                 "market vs. model" comparison. Live data, pulled from Sleeper's API.
+                 fantasy-relevant QB/RB/WR/TE, blended with what each player actually
+                 scored per game this season and last, plus age, team, preseason ADP and
+                 the FantasyPros expert consensus dynasty rank (1QB and superflex, via the
+                 open DynastyProcess data). Live data.
 2. calibration - how much lineup strength turns into real outcomes. For every crawled
                  roster, z-score its optimal_points_total within its league and fit
                  P(made_playoffs) and win% against that z. Local DB (rosters/leagues).
@@ -30,6 +32,8 @@ Usage: python build_trade_values.py [--refresh] [--live-only]
 The full build needs the local MySQL (raw tables) running; re-run it after a new crawl.
 """
 import argparse
+import csv
+import io
 import json
 import math
 import statistics
@@ -55,6 +59,20 @@ MIN_PICKS_PER_SLOT = 30
 AGE_RANGE = range(20, 40)
 AVAILABILITY = 15 / 17         # same as tradeEngine.ts: share of games a healthy starter plays
 MIN_GAMES = 6                  # games played for a season to count as "had a role"
+# Expert consensus (FantasyPros dynasty ECR) as published by DynastyProcess, open data.
+DP_VALUES_URL = "https://github.com/dynastyprocess/data/raw/master/files/values-players.csv"
+DP_IDS_URL = "https://github.com/dynastyprocess/data/raw/master/files/db_playerids.csv"
+EXPERT_KEEP_RANK = 250         # keep experts' top-N in the pool even with no projection (injured, etc.)
+
+
+def cached_text(url, cache_name, refresh):
+    path = CACHE / cache_name
+    if path.exists() and not refresh:
+        return path.read_text(encoding="utf-8")
+    resp = requests.get(url, timeout=60)
+    resp.raise_for_status()
+    path.write_text(resp.text, encoding="utf-8")
+    return resp.text
 
 
 def sleeper_get(url, cache_name, refresh):
@@ -117,21 +135,58 @@ def fetch_hist_actuals():
     are always served from trade_cache/ once downloaded (--refresh doesn't re-pull them)."""
     out = {}
     for season in HIST_SEASONS:
-        games, pos_of = defaultdict(list), {}
-        for week in range(1, LAST_WEEK + 1):
-            rows = sleeper_get(
-                f"https://api.sleeper.app/stats/nfl/{season}/{week}?season_type=regular",
-                f"stats_{season}_{week}.json", False,
-            )
-            for row in rows:
-                pos = (row.get("player") or {}).get("position")
-                stats = row.get("stats") or {}
-                if pos in POS_IDX and stats.get("gp"):
-                    games[row["player_id"]].append(float(stats.get("pts_ppr") or 0))
-                    pos_of[row["player_id"]] = pos
-        for pid, pts in games.items():
-            out[(pid, season)] = (pos_of[pid], statistics.mean(pts), len(pts))
+        for pid, row in season_actuals(season).items():
+            out[(pid, season)] = row
     return out
+
+
+def season_actuals(season):
+    """{player_id: (position, ppr points per game played, games)} for one completed season."""
+    games, pos_of = defaultdict(list), {}
+    for week in range(1, LAST_WEEK + 1):
+        rows = sleeper_get(
+            f"https://api.sleeper.app/stats/nfl/{season}/{week}?season_type=regular",
+            f"stats_{season}_{week}.json", False,
+        )
+        for row in rows:
+            pos = (row.get("player") or {}).get("position")
+            stats = row.get("stats") or {}
+            if pos in POS_IDX and stats.get("gp"):
+                games[row["player_id"]].append(float(stats.get("pts_ppr") or 0))
+                pos_of[row["player_id"]] = pos
+    return {pid: (pos_of[pid], statistics.mean(pts), len(pts)) for pid, pts in games.items()}
+
+
+def fetch_expert_ranks(refresh):
+    """{sleeper player_id: (ecr_1qb, ecr_2qb)}: FantasyPros expert consensus dynasty rank,
+    overall, for 1QB and superflex leagues. Lower is better."""
+    ids = {}
+    for row in csv.DictReader(io.StringIO(cached_text(DP_IDS_URL, "dp_playerids.csv", refresh))):
+        if row.get("fantasypros_id") not in (None, "", "NA") and row.get("sleeper_id") not in (None, "", "NA"):
+            ids[row["fantasypros_id"]] = row["sleeper_id"]
+    out = {}
+    for row in csv.DictReader(io.StringIO(cached_text(DP_VALUES_URL, "dp_values_players.csv", refresh))):
+        pid = ids.get(row.get("fp_id"))
+        try:
+            ranks = (float(row["ecr_1qb"]), float(row["ecr_2qb"]))
+        except (KeyError, ValueError):
+            continue
+        if pid:
+            out[pid] = ranks
+    return out
+
+
+def production_blend(proj, ytd, last):
+    """Per-game baseline from three sources: Sleeper's projection, actual points per game
+    this season (trusted more as games pile up) and last season's actual points per game.
+    ytd/last: (ppg, games) or None."""
+    w_ytd = 0.4 * ytd[1] / (ytd[1] + 4) if ytd else 0.0
+    w_last = 0.2 * min(1.0, last[1] / 8) if last and last[1] >= MIN_GAMES else 0.0
+    if proj <= 0:
+        # No projection (injured, no role yet): production is all there is, but discount it.
+        w_ytd, w_last = (0.5, 0.25 if w_last else 0.0) if ytd else (0.0, 0.5 if w_last else 0.0)
+    total = (1 - w_ytd - w_last) * proj + w_ytd * (ytd[0] if ytd else 0) + w_last * (last[0] if last else 0)
+    return max(0.0, total)
 
 
 def load_market(cursor, season):
@@ -146,7 +201,7 @@ def load_market(cursor, season):
     return market
 
 
-def build_players(players, weekly, games, market, season, current_week):
+def build_players(players, weekly, games, market, season, current_week, last_season, experts):
     out = []
     ros_weeks = list(range(current_week, LAST_WEEK + 1))
     for pid, info in players.items():
@@ -158,16 +213,25 @@ def build_players(players, weekly, games, market, season, current_week):
         season_games = [v for v in proj.values() if v[0] > 0]
         age = age_on(info.get("birth_date"), season)
         ros_total = sum(p for p, _ in ros)
-        # Keep anyone projected for real points, plus young players on a roster who are
-        # dynasty stashes even with no current role.
-        if ros_total < 5 and not (info.get("team") and age is not None and age < 25 and season_games):
+        expert = experts.get(pid)
+        ranked = expert is not None and min(expert) <= EXPERT_KEEP_RANK
+        # Keep anyone projected for real points, young players on a roster who are dynasty
+        # stashes even with no current role, and anyone the experts still rank (injured stars).
+        if ros_total < 5 and not ranked and not (info.get("team") and age is not None and age < 25 and season_games):
             continue
 
-        per_game = statistics.mean(p for p, _ in season_games) if season_games else 0.0
+        proj_pg = statistics.mean(p for p, _ in season_games) if season_games else 0.0
         rec_per_game = statistics.mean(r for _, r in season_games) if season_games else 0.0
         name = f"{info.get('first_name', '')} {info.get('last_name', '')}".strip()
         key = normalize_name(name)
         ytd = games.get(pid, [])
+        last = last_season.get(pid)
+        per_game = production_blend(
+            proj_pg, (statistics.mean(ytd), len(ytd)) if ytd else None, (last[1], last[2]) if last else None)
+        # Scale the week-by-week projections to the blended level (byes stay 0).
+        scale = per_game / proj_pg if proj_pg > 0 else 1.0
+        ros = [(p * scale, r * scale) for p, r in ros]
+        rec_per_game *= scale
         out.append({
             "id": pid,
             "n": name,
@@ -184,6 +248,7 @@ def build_players(players, weekly, games, market, season, current_week):
             "ytd": round(statistics.mean(ytd), 1) if ytd else None,
             "gp": len(ytd),
             "m": {k: v[key] for k, v in market.items() if key in v},
+            "e": [round(x, 1) for x in expert] if expert else None,
         })
     out.sort(key=lambda p: -sum(p["w"]))
     return out
@@ -479,6 +544,10 @@ def main():
     print("Current-season projections...")
     weekly = fetch_current_season(season, args.refresh)
     games = fetch_stats_to_date(season, current_week, args.refresh)
+    last_season = season_actuals(season - 1)
+    print("Expert consensus ranks (FantasyPros via DynastyProcess)...")
+    experts = fetch_expert_ranks(args.refresh)
+    print(f"  {len(experts)} ranked players")
 
     if args.live_only:
         previous = json.loads(OUT.read_text(encoding="utf-8"))
@@ -486,7 +555,7 @@ def main():
             raise SystemExit(f"Existing JSON is for {previous['season']}, Sleeper says {season}: "
                              "run the full build locally first.")
         market = market_from_previous(previous)
-        player_rows = build_players(players, weekly, games, market, season, current_week)
+        player_rows = build_players(players, weekly, games, market, season, current_week, last_season, experts)
         print(f"  {len(player_rows)} players (historical parts kept from {previous['generated']})")
         payload = {**{k: v for k, v in previous.items() if k != "generated"}, "week": current_week,
                    "rosWeeks": list(range(current_week, LAST_WEEK + 1)), "players": player_rows}
@@ -497,7 +566,7 @@ def main():
     db = get_db()
     cursor = db.cursor()
     market = load_market(cursor, season)
-    player_rows = build_players(players, weekly, games, market, season, current_week)
+    player_rows = build_players(players, weekly, games, market, season, current_week, last_season, experts)
     print(f"  {len(player_rows)} players")
 
     print("Calibration (lineup strength -> playoffs)...")

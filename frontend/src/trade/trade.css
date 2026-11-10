@@ -338,9 +338,6 @@
 .board tbody tr:hover { background: var(--paper-2); }
 .spark { width: 60px; height: 18px; display: block; }
 .spark rect { fill: var(--ink-2); }
-.signal { font-family: var(--fig); font-size: 11px; font-weight: 700; padding: 2px 6px; border: 1.5px solid; text-transform: uppercase; }
-.signal.buy { color: var(--up); }
-.signal.sell { color: var(--down); }
 .add-cell { text-align: right; }
 .trade-desk .mini { padding: 3px 7px; font-family: var(--fig); font-size: 11px; border-width: 1px; margin-left: 4px; }
 .board .hint { margin-top: 10px; }

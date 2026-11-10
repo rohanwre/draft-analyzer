@@ -8,6 +8,11 @@
 //           matter for the format (ROS for redraft, ROS + 4 seasons for dynasty).
 // Packages are evaluated jointly (two WR3s can't both start), so the "consolidation
 // premium" falls out of the lineup math instead of being a hand-tuned fudge factor.
+//
+// A player's headline value blends that lineup model with the FantasyPros expert
+// consensus dynasty rank (mapped onto the model's own value curve, so both are in lineup
+// points). One projection source alone overrates whoever Sleeper happens to like this
+// week; the experts see draft capital, role and talent the projection can't.
 
 export type Pos = "QB" | "RB" | "WR" | "TE";
 export type Format = "redraft" | "dynasty";
@@ -49,6 +54,7 @@ export interface TradePlayer {
   ytd: number | null;
   gamesPlayed: number;
   market: Record<string, number>;   // "redraft|standard" -> preseason ADP
+  experts: [number, number] | null; // FantasyPros dynasty consensus rank: [1QB, superflex]
 }
 
 export interface PickAsset {
@@ -98,6 +104,7 @@ export interface TradeData {
 interface RawPlayer {
   id: string; n: string; p: Pos; t: string; a: number | null; x: number | null; inj: string | null;
   w: number[]; r: number[]; b: number; br: number; ytd: number | null; gp: number; m: Record<string, number>;
+  e?: [number, number] | null;
 }
 
 const POSITIONS: Pos[] = ["QB", "RB", "WR", "TE"];
@@ -107,6 +114,16 @@ const SEASON_WEEKS = 17;
 // so future seasons are on the same footing as the historical age curves and pick outcomes.
 const AVAILABILITY = 15 / 17;
 const DRAWS = 40;
+// Cap on projected growth over a player's current level. The age curves compound year
+// over year, and for young TEs/WRs that ran to +70% in four seasons.
+const MAX_GROWTH = 1.3;
+// The curves are fit on every player with a role, so washouts dominate them, and four
+// seasons of compounding turned that into young TEs ballooning and 26-year-old WR1s
+// collapsing. Apply half of each year's fitted change.
+const AGE_CURVE_STRENGTH = 0.5;
+// Share of a player's value that comes from the expert consensus (the rest is the lineup
+// model). Expert ranks are dynasty ranks, so they count for less in redraft.
+export const EXPERT_WEIGHT: Record<Format, number> = { dynasty: 0.6, redraft: 0.2 };
 
 // How much each season counts in dynasty. Index 0 = rest of this season.
 export const STRATEGY_WEIGHTS: Record<Strategy, number[]> = {
@@ -133,6 +150,7 @@ export function buildTradeData(raw: any): TradeData {
   const players: TradePlayer[] = (raw.players as RawPlayer[]).map((p) => ({
     id: p.id, name: p.n, pos: p.p, team: p.t, age: p.a, exp: p.x, injury: p.inj,
     ros: p.w, rosRec: p.r, base: p.b, baseRec: p.br, ytd: p.ytd, gamesPlayed: p.gp, market: p.m,
+    experts: p.e ?? null,
   }));
   return { ...raw, players, byId: new Map(players.map((p) => [p.id, p])) };
 }
@@ -155,7 +173,8 @@ export function retention(data: TradeData, pos: Pos, age: number, level: number)
   const arr = byPos[pos];
   const i = Math.max(0, Math.min(arr.length - 1, Math.floor(age) - startAge));
   const band = ageBandEdges.filter((e) => age >= e).length;
-  return arr[i] * levelAdj[band][levelEdges.filter((e) => level >= e).length];
+  const r = arr[i] * levelAdj[band][levelEdges.filter((e) => level >= e).length];
+  return 1 + AGE_CURVE_STRENGTH * (r - 1);
 }
 
 export function seasonCount(s: Settings): number {
@@ -167,7 +186,7 @@ function futurePpg(data: TradeData, p: TradePlayer, k: number, s: Settings): num
   // Age/level curves are fit on PPR points; track the PPR level and convert at the end.
   let ppr = p.base * AVAILABILITY;
   const age = p.age ?? 26;
-  for (let j = 0; j < k; j++) ppr *= retention(data, p.pos, age + j, ppr);
+  for (let j = 0; j < k; j++) ppr = Math.min(ppr * retention(data, p.pos, age + j, ppr), p.base * AVAILABILITY * MAX_GROWTH);
   return p.base > 0 ? adjust(p.base, p.baseRec, p.pos, s) * (ppr / p.base) : 0;
 }
 
@@ -235,6 +254,15 @@ export interface Context {
   // worth its average lineup gain across these teams - "what it's worth to a team in
   // this league" - which is far more stable than any single median team.
   baseline: Piece[][][];
+  // Every player's standalone value: lineup model alone and blended with the experts.
+  values: Map<string, PlayerValue>;
+}
+
+export interface PlayerValue {
+  model: SideValue;
+  value: SideValue;            // headline: model blended with expert consensus
+  modelRank: number;
+  expertRank: number | null;   // order among players in the pool, by consensus rank
 }
 
 /** Snake-drafts the player pool into N lineups; each team only takes a player who'd start for it. */
@@ -271,7 +299,54 @@ function simulateLeague(data: TradeData, s: Settings, k: number): Piece[][] {
 export function buildContext(data: TradeData, settings: Settings): Context {
   const baseline: Piece[][][] = [];
   for (let k = 0; k < seasonCount(settings); k++) baseline.push(simulateLeague(data, settings, k));
-  return { data, settings, baseline };
+  const ctx: Context = { data, settings, baseline, values: new Map() };
+  ctx.values = blendValues(ctx);
+  return ctx;
+}
+
+/**
+ * Model value per player, plus the expert consensus mapped onto the model's own value
+ * curve: the Nth player by consensus rank gets the Nth highest model value. The headline
+ * value is a weighted mix of the two, split across seasons in the model's shape.
+ */
+function blendValues(ctx: Context): Map<string, PlayerValue> {
+  const s = ctx.settings;
+  const col = isSuperflex(s) ? 1 : 0;
+  const w = EXPERT_WEIGHT[s.format];
+  const seasonW = weightsFor(s);
+  const model = ctx.data.players.map((p) => ({ p, v: summarize(ctx, packageGain(ctx, [{ kind: "player", id: p.id, key: p.id }], null)) }));
+  const curve = model.map((m) => m.v.weighted).sort((a, b) => b - a);
+  const modelRank = new Map([...model].sort((a, b) => b.v.weighted - a.v.weighted).map((m, i) => [m.p.id, i + 1]));
+  const ranked = model.filter((m) => m.p.experts).sort((a, b) => a.p.experts![col] - b.p.experts![col]);
+  const expertRank = new Map(ranked.map((m, i) => [m.p.id, i + 1]));
+  // Unranked by the experts = below everyone they did rank.
+  const floor = curve[Math.min(ranked.length, curve.length - 1)] ?? 0;
+
+  const out = new Map<string, PlayerValue>();
+  for (const { p, v } of model) {
+    const er = expertRank.get(p.id) ?? null;
+    const expert = er != null ? curve[er - 1] : floor;
+    const shape = v.weighted > 1 ? v.bySeason.map((x) => x / v.weighted) : seasonW.map(() => 1 / seasonW.reduce((a, b) => a + b, 0));
+    const bySeason = v.bySeason.map((x, k) => (1 - w) * x + w * expert * shape[k]);
+    out.set(p.id, { model: v, value: summarize(ctx, bySeason), modelRank: modelRank.get(p.id)!, expertRank: er });
+  }
+  return out;
+}
+
+/** Per season, how much the expert blend moves these players off their pure lineup value. */
+function blendDelta(ctx: Context, assets: Asset[]): number[] {
+  const out = Array(seasonCount(ctx.settings)).fill(0);
+  for (const a of assets) {
+    const pv = a.kind === "player" ? ctx.values.get(a.id) : undefined;
+    if (pv) pv.value.bySeason.forEach((v, k) => { out[k] += v - pv.model.bySeason[k]; });
+  }
+  return out;
+}
+
+/** Package value: joint lineup math (consolidation, positional overlap) plus each player's expert adjustment. */
+function blendedGain(ctx: Context, assets: Asset[], roster: Piece[][][] | null, removed: Asset[] = []): number[] {
+  const delta = blendDelta(ctx, assets);
+  return packageGain(ctx, assets, roster, removed).map((v, k) => v + delta[k]);
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +477,8 @@ export function summarize(ctx: Context, bySeason: number[]): SideValue {
 }
 
 export function assetValue(ctx: Context, asset: Asset): SideValue {
-  return summarize(ctx, packageGain(ctx, [asset], null));
+  const pv = asset.kind === "player" ? ctx.values.get(asset.id) : undefined;
+  return pv ? pv.value : summarize(ctx, packageGain(ctx, [asset], null));
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +529,7 @@ export function verdictFrom(a: SideValue, b: SideValue): Verdict {
 
 /** Generic evaluation: what each package is worth to a median team in this league. */
 export function evaluateGeneric(ctx: Context, aGets: Asset[], bGets: Asset[]): Verdict {
-  return verdictFrom(summarize(ctx, packageGain(ctx, aGets, null)), summarize(ctx, packageGain(ctx, bGets, null)));
+  return verdictFrom(summarize(ctx, blendedGain(ctx, aGets, null)), summarize(ctx, blendedGain(ctx, bGets, null)));
 }
 
 // ---------------------------------------------------------------------------
@@ -557,8 +633,8 @@ export function evaluateLeague(
   const b = build(bId, rb);
   // For the fairness call, compare how much each side's lineup improves relative to the other.
   const verdict = verdictFrom(
-    summarize(ctx, packageGain(ctx, aGets, pieces.get(aId)!, bGets)),
-    summarize(ctx, packageGain(ctx, bGets, pieces.get(bId)!, aGets)),
+    summarize(ctx, blendedGain(ctx, aGets, pieces.get(aId)!, bGets)),
+    summarize(ctx, blendedGain(ctx, bGets, pieces.get(bId)!, aGets)),
   );
   return { a, b, verdict };
 }
@@ -571,6 +647,8 @@ export interface BoardRow {
   player: TradePlayer;
   value: SideValue;
   rank: number;
+  modelRank: number;
+  expertRank: number | null;
   marketRank: number | null;
 }
 
@@ -579,7 +657,10 @@ export function marketKey(s: Settings): string {
 }
 
 export function buildBoard(ctx: Context): BoardRow[] {
-  const rows = ctx.data.players.map((p) => ({ player: p, value: assetValue(ctx, { kind: "player", id: p.id, key: p.id }) }));
+  const rows = ctx.data.players.map((p) => {
+    const pv = ctx.values.get(p.id)!;
+    return { player: p, value: pv.value, modelRank: pv.modelRank, expertRank: pv.expertRank };
+  });
   rows.sort((a, b) => b.value.weighted - a.value.weighted);
   const mk = marketKey(ctx.settings);
   const fallbackKey = `redraft|${isSuperflex(ctx.settings) ? "qb_premium" : "standard"}`;
